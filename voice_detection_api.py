@@ -20,10 +20,16 @@ app = Flask(__name__)
 
 # Configuration
 class Config:
-    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', 'AIzaSyBxPc1hqtcrho9iCljE6mMGAty0BewUAIw')
-    API_SECRET_KEY = os.getenv('API_SECRET_KEY', 'sk_test_voice_detection_2024')
+    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+    API_SECRET_KEY = os.getenv('API_SECRET_KEY')
     SUPPORTED_LANGUAGES = ['Tamil', 'English', 'Hindi', 'Malayalam', 'Telugu']
     MAX_AUDIO_SIZE = 10 * 1024 * 1024  # 10MB
+
+# Add validation to ensure environment variables exist
+if not Config.GEMINI_API_KEY:
+    raise ValueError("GEMINI_API_KEY environment variable is required")
+if not Config.API_SECRET_KEY:
+    raise ValueError("API_SECRET_KEY environment variable is required")
 
 # Initialize Gemini client
 try:
@@ -164,7 +170,7 @@ class VoiceDetector:
             """
             
             response = self.client.models.generate_content(
-                model="gemini-2.0-flash-exp",
+                model="gemini-2.5-flash",
                 contents=analysis_prompt
             )
             
