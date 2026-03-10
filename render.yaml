@@ -4,7 +4,8 @@ services:
   - name: voice-detection-api
     type: web
     runtime: python
-    buildCommand: apt-get update && apt-get install -y ffmpeg libsndfile1-dev && pip install -r requirements_voice_api.txt
+    buildCommand: |
+      apt-get update && apt-get install -y --no-install-recommends ffmpeg libsndfile1-dev && pip install -r requirements_voice_api.txt
     startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 120 voice_detection_api:app
     plan: free
     env:
