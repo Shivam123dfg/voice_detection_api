@@ -6,16 +6,15 @@ This folder contains a complete AI Voice Detection API solution that can detect 
 
 ### Core Application Files
 - `voice_detection_api.py` - Main Flask API application
-- `test_voice_api.py` - Test client for the API
+- `test_with_audio.py` - Test client for the API
 - `requirements_voice_api.txt` - Python dependencies
 
 ### Configuration Files
 - `.env` - Environment variables (local only - not in repo)
+- `.env.example` - Environment variables template
 - `.gitignore` - Git ignore rules for security
-- `Dockerfile` - Docker deployment configuration
+- `packages.txt` - System-level dependencies (ffmpeg, libsndfile)
 - `render.yaml` - Render.com deployment config
-- `Procfile` - Heroku deployment config
-- `app.json` - App metadata for deployment
 
 ### Documentation
 - `DEPLOYMENT_GUIDE.md` - Complete step-by-step deployment guide
@@ -25,7 +24,7 @@ This folder contains a complete AI Voice Detection API solution that can detect 
 
 ### Prerequisites
 - Python 3.8 or higher
-- Google AI Studio account for Gemini API key
+- GitHub account with a Personal Access Token (for GitHub Models API)
 
 ### 1. **Clone & Install Dependencies**
    ```bash
@@ -35,10 +34,15 @@ This folder contains a complete AI Voice Detection API solution that can detect 
    ```
 
 ### 2. **Environment Variables Setup**
-   Create a `.env` file in the project root with the following variables:
+   Create a `.env` file in the project root (copy from `.env.example`):
    
    ```bash
-   GEMINI_API_KEY=your_gemini_api_key_here
+   cp .env.example .env
+   ```
+   
+   Then edit `.env` with your actual values:
+   ```bash
+   GITHUB_TOKEN=your_github_token_here
    API_SECRET_KEY=your_custom_secret_key_here
    FLASK_ENV=development
    FLASK_DEBUG=True
@@ -47,11 +51,11 @@ This folder contains a complete AI Voice Detection API solution that can detect 
    ```
 
    **How to get API keys:**
-   - **GEMINI_API_KEY**: Get from [Google AI Studio](https://ai.google.dev/)
-     1. Go to https://ai.google.dev/
-     2. Sign in with your Google account
-     3. Create a new API key
-     4. Copy the key to your `.env` file
+   - **GITHUB_TOKEN**: Get from [GitHub Settings](https://github.com/settings/tokens)
+     1. Go to https://github.com/settings/tokens
+     2. Click "Generate new token (classic)"
+     3. Select the required scopes for GitHub Models access
+     4. Copy the token to your `.env` file
    
    - **API_SECRET_KEY**: Create your own secure random string (e.g., `sk_voice_detection_2024_your_random_string`)
    - **SECRET_KEY**: Generate a secure random key for Flask sessions
@@ -67,7 +71,7 @@ This folder contains a complete AI Voice Detection API solution that can detect 
 
 ### 4. **Test the API**
    ```bash
-   python test_voice_api.py
+   python test_with_audio.py
    ```
 
 ## 🌐 Deploy to Production
@@ -87,7 +91,7 @@ Follow the detailed instructions in `DEPLOYMENT_GUIDE.md` for:
 1. Push your code to GitHub (without `.env` file)
 2. Connect your GitHub repo to Render
 3. Set environment variables in Render dashboard:
-   - `GEMINI_API_KEY` = your actual Gemini API key
+   - `GITHUB_TOKEN` = your GitHub Personal Access Token
    - `API_SECRET_KEY` = your custom secret key
    - `FLASK_ENV` = production
    - `FLASK_DEBUG` = False
@@ -96,7 +100,7 @@ Follow the detailed instructions in `DEPLOYMENT_GUIDE.md` for:
 
 ✅ **Multi-language Support**: Tamil, English, Hindi, Malayalam, Telugu  
 ✅ **Flexible Input**: MP3 audio input via Base64 encoding  
-✅ **AI-Powered**: Uses Google's Gemini 2.0-flash-exp model  
+✅ **AI-Powered**: Uses GitHub Models (GPT-4o) via OpenAI-compatible API  
 ✅ **RESTful API**: Clean JSON request/response format  
 ✅ **Secure Authentication**: API key-based authentication  
 ✅ **Error Handling**: Comprehensive error responses  
@@ -139,7 +143,7 @@ curl https://your-app-name.onrender.com/health
 
 | Variable | Required | Description | Example |
 |----------|----------|-------------|---------|
-| `GEMINI_API_KEY` | Yes | Google AI Studio API key | `AIzaSyB...` |
+| `GITHUB_TOKEN` | Yes | GitHub Personal Access Token | `ghp_xxxx...` |
 | `API_SECRET_KEY` | Yes | Your custom API authentication key | `sk_voice_2024_...` |
 | `FLASK_ENV` | No | Flask environment mode | `development` or `production` |
 | `FLASK_DEBUG` | No | Enable/disable debug mode | `True` or `False` |

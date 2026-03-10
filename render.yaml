@@ -10,7 +10,7 @@ services:
     env:
       - key: PYTHON_VERSION
         value: 3.11.0
-      - key: GEMINI_API_KEY
+      - key: GITHUB_TOKEN
         sync: false  # Set manually in Render dashboard
       - key: API_SECRET_KEY
         sync: false  # Set manually in Render dashboard

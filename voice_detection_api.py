@@ -4,7 +4,7 @@ import os
 import tempfile
 import json
 import time
-from google import genai
+from openai import OpenAI
 import logging
 from functools import wraps
 import librosa
@@ -12,6 +12,10 @@ import numpy as np
 from pydub import AudioSegment
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from dotenv import load_dotenv
+
+# Load environment variables from .env file (for local development)
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -23,16 +27,18 @@ app = Flask(__name__)
 # CONFIGURATION
 # ---------------------------------------------------------------------------
 class Config:
-    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+    GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
     API_SECRET_KEY = os.getenv('API_SECRET_KEY')
     SUPPORTED_LANGUAGES = ['Tamil', 'English', 'Hindi', 'Malayalam', 'Telugu']
     MAX_AUDIO_SIZE = 10 * 1024 * 1024  # 10MB
-    GEMINI_MAX_RETRIES = 3
-    GEMINI_RETRY_DELAY = 2  # seconds (initial backoff)
+    LLM_MAX_RETRIES = 3
+    LLM_RETRY_DELAY = 2  # seconds (initial backoff)
+    GITHUB_MODELS_ENDPOINT = "https://models.inference.ai.azure.com"
+    GITHUB_MODEL_NAME = "gpt-4o"  # or "gpt-4o-mini" for lower cost
 
 # Validate environment variables at startup
-if not Config.GEMINI_API_KEY:
-    raise ValueError("GEMINI_API_KEY environment variable is required")
+if not Config.GITHUB_TOKEN:
+    raise ValueError("GITHUB_TOKEN environment variable is required")
 if not Config.API_SECRET_KEY:
     raise ValueError("API_SECRET_KEY environment variable is required")
 
@@ -90,14 +96,17 @@ def force_json_content_type(response):
     return response
 
 # ---------------------------------------------------------------------------
-# GEMINI CLIENT INITIALISATION
+# GITHUB MODELS (OpenAI-compatible) CLIENT INITIALISATION
 # ---------------------------------------------------------------------------
 try:
-    gemini_client = genai.Client(api_key=Config.GEMINI_API_KEY)
-    logger.info("Gemini client initialized successfully")
+    github_ai_client = OpenAI(
+        base_url=Config.GITHUB_MODELS_ENDPOINT,
+        api_key=Config.GITHUB_TOKEN,
+    )
+    logger.info("GitHub Models client initialized successfully")
 except Exception as e:
-    logger.error(f"Failed to initialize Gemini client: {e}")
-    gemini_client = None
+    logger.error(f"Failed to initialize GitHub Models client: {e}")
+    github_ai_client = None
 
 # ---------------------------------------------------------------------------
 # AUTHENTICATION DECORATOR
@@ -217,46 +226,50 @@ class AudioProcessor:
                         pass
 
 # ---------------------------------------------------------------------------
-# VOICE DETECTOR  (with Gemini retry / exponential back-off)
+# VOICE DETECTOR  (with GitHub Models retry / exponential back-off)
 # ---------------------------------------------------------------------------
 class VoiceDetector:
     def __init__(self, client):
         self.client = client
 
     def analyze_voice(self, audio_features, language):
-        """Analyse voice with retries on Gemini rate-limit / transient errors."""
+        """Analyse voice with retries on rate-limit / transient errors."""
         last_error = None
 
-        for attempt in range(1, Config.GEMINI_MAX_RETRIES + 1):
+        for attempt in range(1, Config.LLM_MAX_RETRIES + 1):
             try:
-                return self._call_gemini(audio_features, language)
+                return self._call_llm(audio_features, language)
             except Exception as e:
                 last_error = e
                 error_msg = str(e).lower()
                 is_rate_limit = any(
                     kw in error_msg for kw in ['429', 'rate', 'quota', 'resource_exhausted']
                 )
-                if is_rate_limit and attempt < Config.GEMINI_MAX_RETRIES:
-                    wait = Config.GEMINI_RETRY_DELAY * (2 ** (attempt - 1))
+                if is_rate_limit and attempt < Config.LLM_MAX_RETRIES:
+                    wait = Config.LLM_RETRY_DELAY * (2 ** (attempt - 1))
                     logger.warning(
-                        f"Gemini rate-limited (attempt {attempt}/{Config.GEMINI_MAX_RETRIES}). "
+                        f"GitHub Models rate-limited (attempt {attempt}/{Config.LLM_MAX_RETRIES}). "
                         f"Retrying in {wait}s..."
                     )
                     time.sleep(wait)
                 elif not is_rate_limit:
                     break
 
-        logger.error(f"All Gemini attempts failed: {last_error}")
+        logger.error(f"All GitHub Models attempts failed: {last_error}")
         return self._fallback_analysis(audio_features, language)
 
-    def _call_gemini(self, audio_features, language):
-        """Single Gemini API call."""
+    def _call_llm(self, audio_features, language):
+        """Single GitHub Models API call (OpenAI-compatible)."""
         if not self.client:
-            raise RuntimeError("Gemini client not initialized")
+            raise RuntimeError("GitHub Models client not initialized")
 
-        analysis_prompt = f"""You are an expert voice analyst specializing in detecting AI-generated vs human voices in {language} language.
+        system_prompt = (
+            f"You are an expert voice analyst specializing in detecting "
+            f"AI-generated vs human voices in {language} language. "
+            f"Respond ONLY with a single valid JSON object (no markdown, no extra text)."
+        )
 
-Analyze the following audio features and determine if this voice sample is AI-generated or human:
+        user_prompt = f"""Analyze the following audio features and determine if this voice sample is AI-generated or human:
 
 Audio Features:
 - Duration: {audio_features['duration']:.2f} seconds
@@ -290,15 +303,19 @@ Human voices typically have:
 - Natural pauses and speech rhythm
 - Emotional undertones
 
-Respond ONLY with a single valid JSON object (no markdown, no extra text):
+Respond ONLY with a single valid JSON object:
 {{"status":"success","language":"{language}","classification":"AI_GENERATED or HUMAN","confidence_score":0.XX,"explanation":"Brief technical explanation"}}"""
 
-        response = self.client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=analysis_prompt,
+        response = self.client.chat.completions.create(
+            model=Config.GITHUB_MODEL_NAME,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.2,
         )
 
-        response_text = response.text.strip()
+        response_text = response.choices[0].message.content.strip()
 
         # Strip markdown fences if present
         if '```json' in response_text:
@@ -314,7 +331,7 @@ Respond ONLY with a single valid JSON object (no markdown, no extra text):
         result = json.loads(response_text)
 
         if 'classification' not in result or 'confidence_score' not in result:
-            raise ValueError("Gemini returned invalid JSON structure")
+            raise ValueError("LLM returned invalid JSON structure")
 
         if result['classification'] not in ('AI_GENERATED', 'HUMAN'):
             result['classification'] = 'HUMAN'
@@ -323,7 +340,7 @@ Respond ONLY with a single valid JSON object (no markdown, no extra text):
         return result
 
     def _fallback_analysis(self, audio_features, language):
-        """Heuristic fallback when Gemini is unavailable."""
+        """Heuristic fallback when GitHub Models is unavailable."""
         ai_indicators = 0
         if audio_features['rms_energy'] > 0.1:
             ai_indicators += 1
@@ -347,7 +364,7 @@ Respond ONLY with a single valid JSON object (no markdown, no extra text):
 # ---------------------------------------------------------------------------
 # INITIALISE
 # ---------------------------------------------------------------------------
-voice_detector = VoiceDetector(gemini_client)
+voice_detector = VoiceDetector(github_ai_client)
 
 # ---------------------------------------------------------------------------
 # ROUTES
@@ -434,7 +451,8 @@ def health_check():
     return jsonify({
         "status": "healthy",
         "supported_languages": Config.SUPPORTED_LANGUAGES,
-        "gemini_available": gemini_client is not None,
+        "github_models_available": github_ai_client is not None,
+        "model": Config.GITHUB_MODEL_NAME,
     }), 200
 
 # ---------------------------------------------------------------------------

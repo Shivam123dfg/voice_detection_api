@@ -8,12 +8,10 @@ This guide will help you deploy the AI Voice Detection API that can detect wheth
 
 - `voice_detection_api.py` - Main Flask API application
 - `requirements_voice_api.txt` - Python dependencies
-- `test_voice_api.py` - Test client for the API
+- `packages.txt` - System-level dependencies (ffmpeg, libsndfile)
+- `test_with_audio.py` - Test client for the API
 - `.env.example` - Environment variables template
-- `Dockerfile` - Docker configuration
 - `render.yaml` - Render.com deployment config
-- `Procfile` - Heroku deployment config
-- `app.json` - App metadata
 
 ## 🚀 Step-by-Step Deployment
 
@@ -43,7 +41,7 @@ This guide will help you deploy the AI Voice Detection API that can detect wheth
    - In Render dashboard, go to your service
    - Go to "Environment" tab
    - Add:
-     - `GEMINI_API_KEY`: Your Gemini API key
+     - `GITHUB_TOKEN`: Your GitHub Personal Access Token
      - `API_SECRET_KEY`: Your custom API key (e.g., `sk_live_your_secret_key`)
 
 5. **Deploy**
@@ -65,7 +63,7 @@ This guide will help you deploy the AI Voice Detection API that can detect wheth
    heroku create your-voice-detection-api
    
    # Set environment variables
-   heroku config:set GEMINI_API_KEY=your_gemini_api_key
+   heroku config:set GITHUB_TOKEN=your_github_token
    heroku config:set API_SECRET_KEY=sk_live_your_secret_key
    
    # Deploy
@@ -113,13 +111,13 @@ This guide will help you deploy the AI Voice Detection API that can detect wheth
 
 1. **Update the test script**
    ```python
-   # In test_voice_api.py, change the URL
-   client = VoiceDetectionClient("https://your-deployed-url.com")
+   # In test_with_audio.py, change the URL
+   url = "https://your-deployed-url.com/api/voice-detection"
    ```
 
 2. **Run tests**
    ```bash
-   python test_voice_api.py
+   python test_with_audio.py
    ```
 
 ### Using cURL
@@ -191,7 +189,7 @@ print(response.json())
 
 4. **Test Locally**
    ```bash
-   python test_voice_api.py
+   python test_with_audio.py
    ```
 
 ## 📊 API Endpoints
@@ -231,7 +229,8 @@ print(response.json())
 {
     "status": "healthy",
     "supported_languages": ["Tamil", "English", "Hindi", "Malayalam", "Telugu"],
-    "gemini_available": true
+    "github_models_available": true,
+    "model": "gpt-4o"
 }
 ```
 
@@ -249,7 +248,7 @@ print(response.json())
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `GEMINI_API_KEY` | Your Gemini API key | Required |
+| `GITHUB_TOKEN` | GitHub Personal Access Token | Required |
 | `API_SECRET_KEY` | Your API authentication key | Required |
 | `PORT` | Port number | 5000 |
 | `FLASK_ENV` | Flask environment | production |
@@ -280,9 +279,9 @@ Visit: `https://your-deployed-url.com/health`
 
 ### Common Issues
 
-1. **"Gemini client not initialized"**
-   - Check your GEMINI_API_KEY environment variable
-   - Verify API key is valid in Google AI Studio
+1. **"GitHub Models client not initialized"**
+   - Check your GITHUB_TOKEN environment variable
+   - Verify token is valid at https://github.com/settings/tokens
 
 2. **"Invalid API key"**
    - Check x-api-key header in your requests
