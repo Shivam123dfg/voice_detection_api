@@ -312,7 +312,7 @@ Respond ONLY with a single valid JSON object:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=0.2,
+            temperature=0.5,
         )
 
         response_text = response.choices[0].message.content.strip()
@@ -337,6 +337,7 @@ Respond ONLY with a single valid JSON object:
             result['classification'] = 'HUMAN'
 
         result['confidence_score'] = max(0.0, min(1.0, float(result['confidence_score'])))
+        result['analysis_method'] = 'llm'
         return result
 
     def _fallback_analysis(self, audio_features, language):
@@ -354,11 +355,13 @@ Respond ONLY with a single valid JSON object:
                 "classification": "AI_GENERATED",
                 "confidence_score": 0.70,
                 "explanation": "Detected consistent audio patterns typical of AI-generated speech (heuristic fallback).",
+                "analysis_method": "heuristic_fallback",
             }
         return {
             "classification": "HUMAN",
             "confidence_score": 0.60,
             "explanation": "Audio characteristics suggest natural human speech patterns (heuristic fallback).",
+            "analysis_method": "heuristic_fallback",
         }
 
 # ---------------------------------------------------------------------------
@@ -434,6 +437,7 @@ def voice_detection():
             "classification": analysis_result["classification"],
             "confidenceScore": round(analysis_result["confidence_score"], 2),
             "explanation": analysis_result["explanation"],
+            "analysisMethod": analysis_result.get("analysis_method", "unknown"),
         }), 200
 
     except Exception as e:
