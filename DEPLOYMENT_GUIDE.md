@@ -1,205 +1,172 @@
 # Voice Detection API - Complete Deployment Guide
 
-## 🎯 Overview
+## Overview
 
 This guide will help you deploy the AI Voice Detection API that can detect whether an audio sample (MP3) is AI-generated or human across 5 languages: Tamil, English, Hindi, Malayalam, and Telugu.
 
-## 📁 Files Created
+## Project Files
 
-- `voice_detection_api.py` - Main Flask API application
-- `requirements_voice_api.txt` - Python dependencies
-- `packages.txt` - System-level dependencies (ffmpeg, libsndfile)
-- `test_with_audio.py` - Test client for the API
-- `.env.example` - Environment variables template
-- `render.yaml` - Render.com deployment config
+| File | Description |
+|------|-------------|
+| `voice_detection_api.py` | Main Flask API application |
+| `requirements_voice_api.txt` | Python dependencies |
+| `packages.txt` | System-level dependencies (ffmpeg, libsndfile) |
+| `Dockerfile` | Docker image definition for deployment |
+| `render.yaml` | Render.com deployment config (Docker runtime) |
+| `test_payload.json` | Sample JSON payload for testing |
+| `.env.example` | Environment variables template |
 
-## 🚀 Step-by-Step Deployment
+## Key Features
+
+- **Docker-based deployment** — system dependencies (ffmpeg, libsndfile) are installed reliably inside the Docker image, avoiding read-only filesystem issues on platforms like Render.
+- **Rate limiting** — 60 requests/min globally, 30 requests/min on the detection endpoint (Flask-Limiter).
+- **Retry with exponential back-off** — automatic retries (up to 3) on GitHub Models rate-limit or transient errors.
+- **Heuristic fallback** — if the LLM is unavailable, a feature-based heuristic still returns a classification.
+- **All-JSON responses** — every response (including errors, 404s, and rate-limit breaches) is guaranteed JSON.
+
+---
+
+## Step-by-Step Deployment
 
 ### Option 1: Deploy to Render.com (FREE - Recommended)
 
-1. **Prepare Your Code**
+> **Important:** This project uses a **Docker** runtime. Render auto-detects the `Dockerfile` in the repo root.
+
+1. **Push your code to GitHub**
    ```bash
-   # Create a new repository on GitHub
-   # Upload all the created files to your repository
+   git add .
+   git commit -m "Deploy voice detection API"
+   git push origin main
    ```
 
 2. **Sign up for Render.com**
    - Go to [render.com](https://render.com)
    - Sign up with your GitHub account
 
-3. **Deploy**
-   - Click "New" → "Web Service"
+3. **Create the service**
+   - Click **New** → **Web Service**
    - Connect your GitHub repository
-   - Choose the repository with your code
+   - Render will **auto-detect the Dockerfile** and select **Docker** as the runtime
    - Configuration:
-     - Name: `voice-detection-api`
-     - Runtime: `Python 3`
-     - Build Command: `pip install -r requirements_voice_api.txt`
-     - Start Command: `gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 120 voice_detection_api:app`
+     - **Name:** `voice-detection-api`
+     - **Runtime:** Docker *(auto-detected)*
+     - **Plan:** Free
+   - Leave **Build Command** and **Start Command** blank — the Dockerfile handles both
 
 4. **Set Environment Variables**
-   - In Render dashboard, go to your service
-   - Go to "Environment" tab
+   - In Render dashboard → your service → **Environment** tab
    - Add:
-     - `GITHUB_TOKEN`: Your GitHub Personal Access Token
-     - `API_SECRET_KEY`: Your custom API key (e.g., `sk_live_your_secret_key`)
+     - `GITHUB_TOKEN` — Your GitHub Personal Access Token (with GitHub Models access)
+     - `API_SECRET_KEY` — Your custom API key (e.g., `sk_live_your_secret_key`)
 
 5. **Deploy**
-   - Click "Create Web Service"
-   - Wait for deployment (5-10 minutes)
+   - Click **Create Web Service**
+   - Wait for the Docker image to build and deploy (5–10 minutes)
    - Your API will be available at: `https://your-app-name.onrender.com`
 
-### Option 2: Deploy to Heroku (FREE tier available)
+> **Troubleshooting Render:** If your existing service was created with Python runtime and you can't switch to Docker in the UI, **delete the service and recreate it**. Render will detect the Dockerfile on fresh creation.
 
-1. **Install Heroku CLI**
-   - Download from [heroku.com/download](https://devcenter.heroku.com/articles/heroku-cli)
+### Option 2: Deploy to Heroku
+
+1. **Install Heroku CLI** — [heroku.com/download](https://devcenter.heroku.com/articles/heroku-cli)
 
 2. **Deploy**
    ```bash
-   # Login to Heroku
    heroku login
-   
-   # Create app
    heroku create your-voice-detection-api
-   
-   # Set environment variables
+
+   # Set the stack to container (Docker)
+   heroku stack:set container
+
    heroku config:set GITHUB_TOKEN=your_github_token
    heroku config:set API_SECRET_KEY=sk_live_your_secret_key
-   
-   # Deploy
-   git init
-   git add .
-   git commit -m "Initial deployment"
+
    git push heroku main
    ```
 
-### Option 3: Railway.app (FREE)
+### Option 3: Railway.app
 
-1. **Go to Railway.app**
-   - Sign up at [railway.app](https://railway.app)
+1. Sign up at [railway.app](https://railway.app)
+2. Click **Deploy from GitHub repo** and select your repository
+3. Railway auto-detects the Dockerfile
+4. Set environment variables (`GITHUB_TOKEN`, `API_SECRET_KEY`) in the Railway dashboard
+5. Deploy automatically
 
-2. **Deploy from GitHub**
-   - Click "Deploy from GitHub repo"
-   - Select your repository
-   - Set environment variables in Railway dashboard
-   - Deploy automatically
-
-### Option 4: Google Cloud Run (FREE tier)
-
-1. **Build and deploy with Docker**
-   ```bash
-   # Build Docker image
-   docker build -t voice-detection-api .
-   
-   # Tag for Google Cloud
-   docker tag voice-detection-api gcr.io/YOUR_PROJECT_ID/voice-detection-api
-   
-   # Push to Google Container Registry
-   docker push gcr.io/YOUR_PROJECT_ID/voice-detection-api
-   
-   # Deploy to Cloud Run
-   gcloud run deploy voice-detection-api \
-     --image gcr.io/YOUR_PROJECT_ID/voice-detection-api \
-     --platform managed \
-     --region us-central1 \
-     --allow-unauthenticated
-   ```
-
-## 🧪 Testing Your Deployed API
-
-### Using the Test Script
-
-1. **Update the test script**
-   ```python
-   # In test_with_audio.py, change the URL
-   url = "https://your-deployed-url.com/api/voice-detection"
-   ```
-
-2. **Run tests**
-   ```bash
-   python test_with_audio.py
-   ```
-
-### Using cURL
+### Option 4: Google Cloud Run
 
 ```bash
-curl -X POST https://your-deployed-url.com/api/voice-detection \
--H "Content-Type: application/json" \
--H "x-api-key: sk_live_your_secret_key" \
--d '{
-    "language": "English",
-    "audioFormat": "mp3",
-    "audioBase64": "BASE64_ENCODED_AUDIO_DATA"
-}'
+# Build Docker image
+docker build -t voice-detection-api .
+
+# Tag for Google Cloud
+docker tag voice-detection-api gcr.io/YOUR_PROJECT_ID/voice-detection-api
+
+# Push to Google Container Registry
+docker push gcr.io/YOUR_PROJECT_ID/voice-detection-api
+
+# Deploy to Cloud Run
+gcloud run deploy voice-detection-api \
+  --image gcr.io/YOUR_PROJECT_ID/voice-detection-api \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --set-env-vars GITHUB_TOKEN=your_token,API_SECRET_KEY=your_key
 ```
 
-### Using Python Requests
+---
 
-```python
-import requests
-import base64
-
-# Encode your audio file
-with open("sample.mp3", "rb") as f:
-    audio_base64 = base64.b64encode(f.read()).decode()
-
-# Make request
-response = requests.post(
-    "https://your-deployed-url.com/api/voice-detection",
-    headers={
-        "Content-Type": "application/json",
-        "x-api-key": "sk_live_your_secret_key"
-    },
-    json={
-        "language": "English",
-        "audioFormat": "mp3",
-        "audioBase64": audio_base64
-    }
-)
-
-print(response.json())
-```
-
-## 🔧 Local Development & Testing
+## Local Development & Testing
 
 1. **Setup Environment**
    ```bash
-   # Create virtual environment
-   python -m venv venv
-   
+   python -m venv .venv
+
    # Activate (Windows)
-   venv\Scripts\activate
-   
-   # Install dependencies
+   .venv\Scripts\activate
+
+   # Activate (macOS/Linux)
+   source .venv/bin/activate
+
    pip install -r requirements_voice_api.txt
    ```
 
 2. **Set Environment Variables**
    ```bash
-   # Copy environment file
-   copy .env.example .env
-   
-   # Edit .env file with your actual keys
+   # Copy the template
+   copy .env.example .env      # Windows
+   cp .env.example .env        # macOS/Linux
+
+   # Edit .env with your actual keys
    ```
 
 3. **Run Locally**
    ```bash
    python voice_detection_api.py
    ```
+   The server starts on `http://localhost:5000`.
 
-4. **Test Locally**
+4. **Run with Docker Locally** *(optional)*
    ```bash
-   python test_with_audio.py
+   docker build -t voice-detection-api .
+   docker run -p 5000:10000 \
+     -e GITHUB_TOKEN=your_token \
+     -e API_SECRET_KEY=your_key \
+     voice-detection-api
    ```
 
-## 📊 API Endpoints
+---
+
+## API Endpoints
 
 ### POST /api/voice-detection
-**Main voice detection endpoint**
+
+**Main voice detection endpoint** — rate-limited to 30 requests/min per IP.
 
 **Headers:**
-- `Content-Type: application/json`
-- `x-api-key: YOUR_API_KEY`
+| Header | Value |
+|--------|-------|
+| `Content-Type` | `application/json` |
+| `x-api-key` | Your `API_SECRET_KEY` |
 
 **Request Body:**
 ```json
@@ -210,7 +177,7 @@ print(response.json())
 }
 ```
 
-**Success Response:**
+**Success Response (200):**
 ```json
 {
     "status": "success",
@@ -221,8 +188,20 @@ print(response.json())
 }
 ```
 
+**Error Response (4xx/5xx):**
+```json
+{
+    "status": "error",
+    "error_type": "validation_error",
+    "message": "Description of the error"
+}
+```
+
+Error types: `validation_error`, `authentication_error`, `processing_error`, `rate_limit`, `not_found`, `method_not_allowed`, `server_error`.
+
 ### GET /health
-**Health check endpoint**
+
+**Health check endpoint** — no authentication required.
 
 **Response:**
 ```json
@@ -234,92 +213,112 @@ print(response.json())
 }
 ```
 
-## 🔒 Security Features
+---
 
-- ✅ API Key authentication
-- ✅ Input validation
-- ✅ File size limits (10MB)
-- ✅ Error handling
-- ✅ Request timeout protection
+## Testing Your Deployed API
 
-## 🎛️ Configuration Options
+### Using cURL
+
+```bash
+curl -X POST https://your-deployed-url.com/api/voice-detection \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: sk_live_your_secret_key" \
+  -d '{
+    "language": "English",
+    "audioFormat": "mp3",
+    "audioBase64": "BASE64_ENCODED_AUDIO_DATA"
+  }'
+```
+
+### Using Python
+
+```python
+import requests
+import base64
+
+# Encode your audio file
+with open("sample.mp3", "rb") as f:
+    audio_base64 = base64.b64encode(f.read()).decode()
+
+response = requests.post(
+    "https://your-deployed-url.com/api/voice-detection",
+    headers={
+        "Content-Type": "application/json",
+        "x-api-key": "sk_live_your_secret_key",
+    },
+    json={
+        "language": "English",
+        "audioFormat": "mp3",
+        "audioBase64": audio_base64,
+    },
+)
+
+print(response.json())
+```
+
+---
+
+## Configuration
 
 ### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `GITHUB_TOKEN` | GitHub Personal Access Token | Required |
-| `API_SECRET_KEY` | Your API authentication key | Required |
-| `PORT` | Port number | 5000 |
-| `FLASK_ENV` | Flask environment | production |
+| `GITHUB_TOKEN` | GitHub Personal Access Token (GitHub Models) | **Required** |
+| `API_SECRET_KEY` | API authentication key for `x-api-key` header | **Required** |
+| `PORT` | Port number | `5000` (local) / `10000` (Docker) |
 
 ### Supported Languages
-- Tamil
-- English  
-- Hindi
-- Malayalam
-- Telugu
 
-### Supported Audio Format
-- MP3 only
-- Base64 encoded
-- Maximum size: 10MB
+Tamil, English, Hindi, Malayalam, Telugu
 
-## 🔍 Monitoring & Logs
+### Audio Constraints
 
-### Check Deployment Status
-- **Render.com**: Dashboard → Your Service → Logs
-- **Heroku**: `heroku logs --tail`
-- **Railway**: Dashboard → Your Project → Deployments
+- Format: MP3 only
+- Encoding: Base64
+- Max size: 10 MB
+
+### Rate Limits
+
+| Scope | Limit |
+|-------|-------|
+| Global (all endpoints) | 60 requests/min per IP |
+| `/api/voice-detection` | 30 requests/min per IP |
+
+---
+
+## Security Features
+
+- API Key authentication (`x-api-key` header)
+- Input validation on all fields
+- File size limits (10 MB)
+- Rate limiting (Flask-Limiter)
+- All responses guaranteed JSON (no plain-text leaks)
+- Comprehensive error handling with typed errors
+
+---
+
+## Monitoring & Logs
 
 ### Health Check
-Visit: `https://your-deployed-url.com/health`
+```
+GET https://your-deployed-url.com/health
+```
 
-## 🛠️ Troubleshooting
+### Platform Logs
+- **Render:** Dashboard → Your Service → Logs
+- **Heroku:** `heroku logs --tail`
+- **Railway:** Dashboard → Your Project → Deployments
 
-### Common Issues
+---
 
-1. **"GitHub Models client not initialized"**
-   - Check your GITHUB_TOKEN environment variable
-   - Verify token is valid at https://github.com/settings/tokens
+## Troubleshooting
 
-2. **"Invalid API key"**
-   - Check x-api-key header in your requests
-   - Verify API_SECRET_KEY environment variable
-
-3. **"Audio processing failed"**
-   - Ensure audio is valid MP3 format
-   - Check base64 encoding is correct
-   - Verify file size is under 10MB
-
-4. **Deployment failed**
-   - Check all required files are uploaded
-   - Verify requirements.txt is correct
-   - Check environment variables are set
-
-### Getting Help
-
-1. Check the `/health` endpoint
-2. Review application logs
-3. Test with the provided test script
-4. Verify all environment variables are set correctly
-
-## 🎉 Success!
-
-Once deployed, your API will be available at your chosen platform's URL. You can now:
-
-1. Accept MP3 audio files in Base64 format
-2. Detect AI-generated vs Human voices
-3. Support 5 languages (Tamil, English, Hindi, Malayalam, Telugu)
-4. Return JSON responses with classification and confidence scores
-5. Handle authentication with API keys
-
-Your free public URL endpoint is now ready for production use!
-
-## 💡 Next Steps
-
-1. **Monitor Usage**: Set up monitoring for API calls
-2. **Improve Accuracy**: Fine-tune the detection algorithm based on real data
-3. **Scale**: Upgrade to paid plans if you need higher limits
-4. **Security**: Implement rate limiting for production use
-5. **Documentation**: Create API documentation for users
+| Symptom | Cause & Fix |
+|---------|-------------|
+| **"GitHub Models client not initialized"** | `GITHUB_TOKEN` is missing or invalid. Verify at https://github.com/settings/tokens |
+| **"Invalid or missing API key"** | `x-api-key` header doesn't match `API_SECRET_KEY` env var |
+| **"Failed to process audio file"** | Invalid MP3, bad Base64, or file > 10 MB |
+| **429 Too Many Requests** | Rate limit hit — wait and retry |
+| **Build fails with "Read-only file system"** | Service is using Python runtime instead of Docker. Delete and recreate the service so Render detects the Dockerfile. |
+| **Deployment timeout** | Free-tier cold starts can take 30–60 s. The Docker image build may take ~5 min on first deploy. |
