@@ -20,4 +20,4 @@ COPY . .
 EXPOSE 10000
 
 # Start the application
-CMD ["gunicorn", "--bind", "0.0.0.0:10000", "--workers", "2", "--timeout", "300", "voice_detection_api:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:10000", "--workers", "2", "--timeout", "1000", "voice_detection_api:app"]

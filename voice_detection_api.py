@@ -152,11 +152,12 @@ def validate_request_payload(data):
         )
 
     # --- audioFormat ---
+    ALLOWED_FORMATS = ('mp3', 'wav')
     audio_format = data['audioFormat']
     if not isinstance(audio_format, str):
         errors.append("'audioFormat' must be a string")
-    elif audio_format.lower() != 'mp3':
-        errors.append("Only 'mp3' audioFormat is currently supported")
+    elif audio_format.lower() not in ALLOWED_FORMATS:
+        errors.append(f"Unsupported audioFormat '{audio_format}'. Allowed: {ALLOWED_FORMATS}")
 
     # --- audioBase64 ---
     audio_base64 = data['audioBase64']
@@ -187,18 +188,22 @@ class AudioProcessor:
             raise ValueError("Invalid base64 audio data")
 
     @staticmethod
-    def extract_audio_features(audio_bytes):
+    def extract_audio_features(audio_bytes, audio_format='mp3'):
         """Extract audio features for analysis."""
         temp_path = None
         wav_path = None
         try:
-            with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
+            suffix = f'.{audio_format}'
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
                 tmp.write(audio_bytes)
                 temp_path = tmp.name
 
-            audio = AudioSegment.from_mp3(temp_path)
-            wav_path = temp_path.replace('.mp3', '.wav')
-            audio.export(wav_path, format="wav")
+            if audio_format == 'wav':
+                wav_path = temp_path          # already WAV, use directly
+            else:
+                audio = AudioSegment.from_mp3(temp_path)
+                wav_path = temp_path.replace(suffix, '.wav')
+                audio.export(wav_path, format="wav")
 
             y, sr = librosa.load(wav_path, sr=None)
 
@@ -399,6 +404,7 @@ def voice_detection():
 
         language = cleaned['language']
         audio_base64 = cleaned['audioBase64']
+        audio_format = cleaned['audioFormat']
 
         # --- Decode audio ---
         try:
@@ -420,7 +426,7 @@ def voice_detection():
 
         # --- Feature extraction ---
         try:
-            audio_features = AudioProcessor.extract_audio_features(audio_bytes)
+            audio_features = AudioProcessor.extract_audio_features(audio_bytes, audio_format)
         except ValueError as e:
             return jsonify({
                 "status": "error",
