@@ -317,7 +317,7 @@ Respond ONLY with a single valid JSON object:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=0.5,
+            temperature=1,
         )
 
         response_text = response.choices[0].message.content.strip()
@@ -383,8 +383,12 @@ voice_detector = VoiceDetector(github_ai_client)
 def voice_detection():
     """Main voice detection endpoint."""
     try:
+        logger.info("="*60)
+        logger.info("STEP 1: Received voice detection request")
+
         # --- Content-Type check ---
         if not request.is_json:
+            logger.warning("STEP 1 FAILED: Content-Type is not JSON")
             return jsonify({
                 "status": "error",
                 "error_type": "validation_error",
@@ -392,10 +396,12 @@ def voice_detection():
             }), 400
 
         data = request.get_json(silent=True)
+        logger.info("STEP 2: JSON payload parsed successfully")
 
         # --- Payload validation ---
         validation_errors, cleaned = validate_request_payload(data)
         if validation_errors:
+            logger.warning(f"STEP 2 FAILED: Validation errors: {validation_errors}")
             return jsonify({
                 "status": "error",
                 "error_type": "validation_error",
@@ -405,11 +411,14 @@ def voice_detection():
         language = cleaned['language']
         audio_base64 = cleaned['audioBase64']
         audio_format = cleaned['audioFormat']
+        logger.info(f"STEP 3: Validated - language={language}, format={audio_format}, base64_len={len(audio_base64)}")
 
         # --- Decode audio ---
         try:
             audio_bytes = AudioProcessor.decode_base64_audio(audio_base64)
+            logger.info(f"STEP 4: Audio decoded - {len(audio_bytes)} bytes ({len(audio_bytes)//1024} KB)")
         except ValueError as e:
+            logger.error(f"STEP 4 FAILED: Base64 decode error: {e}")
             return jsonify({
                 "status": "error",
                 "error_type": "validation_error",
@@ -418,6 +427,7 @@ def voice_detection():
 
         # --- Size check ---
         if len(audio_bytes) > Config.MAX_AUDIO_SIZE:
+            logger.warning(f"STEP 4 FAILED: Audio too large ({len(audio_bytes)} bytes)")
             return jsonify({
                 "status": "error",
                 "error_type": "validation_error",
@@ -426,8 +436,14 @@ def voice_detection():
 
         # --- Feature extraction ---
         try:
+            logger.info("STEP 5: Extracting audio features...")
             audio_features = AudioProcessor.extract_audio_features(audio_bytes, audio_format)
+            logger.info(f"STEP 5: Features extracted - duration={audio_features['duration']:.2f}s, "
+                        f"sample_rate={audio_features['sample_rate']}, "
+                        f"rms_energy={audio_features['rms_energy']:.6f}, "
+                        f"spectral_centroid={audio_features['spectral_centroid']:.2f}")
         except ValueError as e:
+            logger.error(f"STEP 5 FAILED: Feature extraction error: {e}")
             return jsonify({
                 "status": "error",
                 "error_type": "processing_error",
@@ -435,7 +451,13 @@ def voice_detection():
             }), 422
 
         # --- Voice analysis ---
+        logger.info("STEP 6: Sending to LLM for voice analysis...")
         analysis_result = voice_detector.analyze_voice(audio_features, language)
+        logger.info(f"STEP 6: Analysis complete - method={analysis_result.get('analysis_method')}, "
+                    f"classification={analysis_result['classification']}, "
+                    f"confidence={analysis_result['confidence_score']:.2f}")
+        logger.info(f"STEP 6: Explanation: {analysis_result.get('explanation', 'N/A')}")
+        logger.info("="*60)
 
         return jsonify({
             "status": "success",
@@ -531,4 +553,4 @@ def handle_any_exception(error):
 # ---------------------------------------------------------------------------
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=True)
