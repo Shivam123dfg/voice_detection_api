@@ -35,7 +35,7 @@ class Config:
     HF_MAX_RETRIES = 3
     HF_RETRY_DELAY = 2  # seconds (initial backoff)
     HF_MODEL_ID = "Heem2/AI-Human-Audio-Detection"
-    HF_API_URL = "https://api-inference.huggingface.co/models/" + HF_MODEL_ID
+    HF_API_URL = "https://router.huggingface.co/models/" + HF_MODEL_ID
 
 # Validate environment variables at startup
 if not Config.HF_API_TOKEN:
@@ -288,8 +288,8 @@ class AudioProcessor:
                 'spectral_centroid': float(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr))),
                 'zero_crossing_rate': float(np.mean(librosa.feature.zero_crossing_rate(y))),
                 'mfcc_mean': [float(x) for x in np.mean(librosa.feature.mfcc(y=y, sr=sr), axis=1)[:13]],
-                'tempo': float(librosa.beat.tempo(y=y, sr=sr)[0])
-                         if len(librosa.beat.tempo(y=y, sr=sr)) > 0 else 0.0,
+                'tempo': float(librosa.feature.rhythm.tempo(y=y, sr=sr)[0])
+                         if len(librosa.feature.rhythm.tempo(y=y, sr=sr)) > 0 else 0.0,
             }
             return features
 
