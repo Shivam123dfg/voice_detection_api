@@ -1,10 +1,11 @@
 from flask import Flask, request, jsonify, make_response
 import base64
+import io
 import os
 import tempfile
 import json
 import time
-from openai import OpenAI
+import requests as http_requests
 import logging
 from functools import wraps
 import librosa
@@ -27,20 +28,20 @@ app = Flask(__name__)
 # CONFIGURATION
 # ---------------------------------------------------------------------------
 class Config:
-    GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
+    HF_API_TOKEN = os.getenv('HF_API_TOKEN')
     API_SECRET_KEY = os.getenv('API_SECRET_KEY')
     SUPPORTED_LANGUAGES = ['Tamil', 'English', 'Hindi', 'Malayalam', 'Telugu']
     MAX_AUDIO_SIZE = 10 * 1024 * 1024  # 10MB
-    LLM_MAX_RETRIES = 3
-    LLM_RETRY_DELAY = 2  # seconds (initial backoff)
-    GITHUB_MODELS_ENDPOINT = "https://models.inference.ai.azure.com"
-    GITHUB_MODEL_NAME = "gpt-4o"  # or "gpt-4o-mini" for lower cost
+    HF_MAX_RETRIES = 3
+    HF_RETRY_DELAY = 2  # seconds (initial backoff)
+    HF_MODEL_ID = "Heem2/AI-Human-Audio-Detection"
+    HF_API_URL = "https://api-inference.huggingface.co/models/" + HF_MODEL_ID
 
 # Validate environment variables at startup
-if not Config.GITHUB_TOKEN:
-    raise ValueError("GITHUB_TOKEN environment variable is required")
+if not Config.HF_API_TOKEN:
+    logger.warning("HF_API_TOKEN is not set. Voice detection will use heuristic fallback only.")
 if not Config.API_SECRET_KEY:
-    raise ValueError("API_SECRET_KEY environment variable is required")
+    logger.warning("API_SECRET_KEY is not set. Protected endpoints will reject all requests until it is configured.")
 
 # ---------------------------------------------------------------------------
 # FLASK-LIMITER  –  rate-limit responses are ALWAYS JSON
@@ -96,17 +97,12 @@ def force_json_content_type(response):
     return response
 
 # ---------------------------------------------------------------------------
-# GITHUB MODELS (OpenAI-compatible) CLIENT INITIALISATION
+# HUGGINGFACE MODEL CONFIGURATION
 # ---------------------------------------------------------------------------
-try:
-    github_ai_client = OpenAI(
-        base_url=Config.GITHUB_MODELS_ENDPOINT,
-        api_key=Config.GITHUB_TOKEN,
-    )
-    logger.info("GitHub Models client initialized successfully")
-except Exception as e:
-    logger.error(f"Failed to initialize GitHub Models client: {e}")
-    github_ai_client = None
+if Config.HF_API_TOKEN:
+    logger.info(f"HuggingFace configured: model={Config.HF_MODEL_ID}")
+else:
+    logger.warning("HuggingFace API token not set, will use heuristic fallback")
 
 # ---------------------------------------------------------------------------
 # AUTHENTICATION DECORATOR
@@ -188,6 +184,84 @@ class AudioProcessor:
             raise ValueError("Invalid base64 audio data")
 
     @staticmethod
+    def compress_audio_if_needed(audio_bytes, audio_format='mp3', target_base64_kb=10):
+        """Compress audio so its base64 encoding stays within target_base64_kb."""
+        base64_size_kb = len(base64.b64encode(audio_bytes)) / 1024
+
+        if base64_size_kb <= target_base64_kb:
+            logger.info(f"Audio base64 size is {base64_size_kb:.1f} KB — within {target_base64_kb} KB limit, no compression needed")
+            return audio_bytes, audio_format
+
+        logger.info(f"Audio base64 size is {base64_size_kb:.1f} KB — exceeds {target_base64_kb} KB limit. Compressing...")
+
+        temp_path = None
+        try:
+            suffix = f'.{audio_format}'
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                tmp.write(audio_bytes)
+                temp_path = tmp.name
+
+            # Auto-detect format: try declared format first, then fallback
+            try:
+                if audio_format == 'wav':
+                    audio = AudioSegment.from_wav(temp_path)
+                else:
+                    audio = AudioSegment.from_mp3(temp_path)
+            except Exception:
+                logger.warning(
+                    f"Could not load as '{audio_format}', "
+                    f"trying auto-detect..."
+                )
+                audio = AudioSegment.from_file(temp_path)
+
+            # Convert to mono to reduce size
+            audio = audio.set_channels(1)
+
+            # Try progressively lower sample rates and bitrates
+            sample_rates = [16000, 12000, 8000]
+            bitrates = ['32k', '24k', '16k']
+
+            for sr in sample_rates:
+                resampled = audio.set_frame_rate(sr)
+                for br in bitrates:
+                    buf = io.BytesIO()
+                    resampled.export(buf, format='mp3', bitrate=br)
+                    compressed = buf.getvalue()
+                    compressed_b64_kb = len(base64.b64encode(compressed)) / 1024
+                    if compressed_b64_kb <= target_base64_kb:
+                        logger.info(
+                            f"Compressed to {compressed_b64_kb:.1f} KB base64 "
+                            f"(sample_rate={sr}, bitrate={br})"
+                        )
+                        return compressed, 'mp3'
+
+            # Still too large — trim duration proportionally
+            last_compressed = compressed          # smallest quality attempt
+            last_b64_kb = len(base64.b64encode(last_compressed)) / 1024
+            trim_ratio = target_base64_kb / last_b64_kb
+            trim_ms = int(len(audio) * min(trim_ratio, 1.0))
+            trimmed = audio.set_frame_rate(8000)[:trim_ms]
+
+            buf = io.BytesIO()
+            trimmed.export(buf, format='mp3', bitrate='16k')
+            compressed = buf.getvalue()
+            logger.info(
+                f"Trimmed to {trim_ms} ms and compressed to "
+                f"{len(base64.b64encode(compressed)) / 1024:.1f} KB base64"
+            )
+            return compressed, 'mp3'
+
+        except Exception as e:
+            logger.warning(f"Compression failed ({e}), proceeding with original audio")
+            return audio_bytes, audio_format
+        finally:
+            if temp_path:
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+
+    @staticmethod
     def extract_audio_features(audio_bytes, audio_format='mp3'):
         """Extract audio features for analysis."""
         temp_path = None
@@ -231,122 +305,104 @@ class AudioProcessor:
                         pass
 
 # ---------------------------------------------------------------------------
-# VOICE DETECTOR  (with GitHub Models retry / exponential back-off)
+# VOICE DETECTOR  (with HuggingFace Inference API + retry / exponential back-off)
 # ---------------------------------------------------------------------------
 class VoiceDetector:
-    def __init__(self, client):
-        self.client = client
+    def __init__(self):
+        self.api_url = Config.HF_API_URL
+        self.headers = {}
+        if Config.HF_API_TOKEN:
+            self.headers["Authorization"] = f"Bearer {Config.HF_API_TOKEN}"
 
-    def analyze_voice(self, audio_features, language):
+    def analyze_voice(self, audio_bytes, audio_format, language):
         """Analyse voice with retries on rate-limit / transient errors."""
         last_error = None
 
-        for attempt in range(1, Config.LLM_MAX_RETRIES + 1):
+        for attempt in range(1, Config.HF_MAX_RETRIES + 1):
             try:
-                return self._call_llm(audio_features, language)
+                return self._call_hf_api(audio_bytes, language)
             except Exception as e:
                 last_error = e
                 error_msg = str(e).lower()
-                is_rate_limit = any(
-                    kw in error_msg for kw in ['429', 'rate', 'quota', 'resource_exhausted']
+                is_retryable = any(
+                    kw in error_msg
+                    for kw in ['429', 'rate', 'quota', 'loading', '503', 'timeout', 'connection', 'resolve']
                 )
-                if is_rate_limit and attempt < Config.LLM_MAX_RETRIES:
-                    wait = Config.LLM_RETRY_DELAY * (2 ** (attempt - 1))
+                if is_retryable and attempt < Config.HF_MAX_RETRIES:
+                    wait = Config.HF_RETRY_DELAY * (2 ** (attempt - 1))
                     logger.warning(
-                        f"GitHub Models rate-limited (attempt {attempt}/{Config.LLM_MAX_RETRIES}). "
+                        f"HuggingFace API issue (attempt {attempt}/{Config.HF_MAX_RETRIES}). "
                         f"Retrying in {wait}s..."
                     )
                     time.sleep(wait)
-                elif not is_rate_limit:
+                elif not is_retryable:
                     break
 
-        logger.error(f"All GitHub Models attempts failed: {last_error}")
-        return self._fallback_analysis(audio_features, language)
+        logger.error(f"All HuggingFace API attempts failed: {last_error}")
+        return self._fallback_analysis(audio_bytes, audio_format, language)
 
-    def _call_llm(self, audio_features, language):
-        """Single GitHub Models API call (OpenAI-compatible)."""
-        if not self.client:
-            raise RuntimeError("GitHub Models client not initialized")
+    def _call_hf_api(self, audio_bytes, language):
+        """Call HuggingFace Inference API for audio classification."""
+        if not Config.HF_API_TOKEN:
+            raise RuntimeError("HuggingFace API token not configured")
 
-        system_prompt = (
-            f"You are an expert voice analyst specializing in detecting "
-            f"AI-generated vs human voices in {language} language. "
-            f"Respond ONLY with a single valid JSON object (no markdown, no extra text)."
+        response = http_requests.post(
+            self.api_url,
+            headers=self.headers,
+            data=audio_bytes,
+            timeout=30,
+            verify=not os.getenv('DEV_SKIP_SSL', '').lower() in ('1', 'true'),
         )
 
-        user_prompt = f"""Analyze the following audio features and determine if this voice sample is AI-generated or human:
+        if response.status_code == 503:
+            raise RuntimeError("HuggingFace model is loading, please retry")
 
-Audio Features:
-- Duration: {audio_features['duration']:.2f} seconds
-- Sample Rate: {audio_features['sample_rate']} Hz
-- RMS Energy: {audio_features['rms_energy']:.6f}
-- Spectral Centroid: {audio_features['spectral_centroid']:.2f}
-- Zero Crossing Rate: {audio_features['zero_crossing_rate']:.6f}
-- MFCC Features: {audio_features['mfcc_mean'][:5]}
-- Tempo: {audio_features['tempo']:.2f} BPM
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"HuggingFace API error {response.status_code}: {response.text}"
+            )
 
-Language: {language}
+        results = response.json()
 
-Based on these audio characteristics, analyze:
-1. Naturalness of speech patterns
-2. Pitch consistency and variation
-3. Breathing patterns and pauses
-4. Spectral characteristics typical of human vs AI voices
-5. Language-specific phonetic patterns
+        if isinstance(results, dict) and 'error' in results:
+            raise RuntimeError(f"HuggingFace API: {results['error']}")
 
-Consider that AI voices often have:
-- Unnatural pitch consistency
-- Lack of subtle breathing sounds
-- Robotic speech patterns
-- Unusual spectral characteristics
-- Perfect pronunciation without natural speech variations
+        if isinstance(results, list) and len(results) > 0:
+            top = max(results, key=lambda x: x.get('score', 0))
+            label = top.get('label', '').upper()
+            score = float(top.get('score', 0.5))
 
-Human voices typically have:
-- Natural pitch variations
-- Subtle background noise and breathing
-- Slight pronunciation inconsistencies
-- Natural pauses and speech rhythm
-- Emotional undertones
+            if any(kw in label for kw in ['AI', 'FAKE', 'SPOOF', 'SYNTHETIC', 'GENERATED']):
+                classification = 'AI_GENERATED'
+            else:
+                classification = 'HUMAN'
 
-Respond ONLY with a single valid JSON object:
-{{"status":"success","language":"{language}","classification":"AI_GENERATED or HUMAN","confidence_score":0.XX,"explanation":"Brief technical explanation"}}"""
+            return {
+                "classification": classification,
+                "confidence_score": round(score, 2),
+                "explanation": (
+                    f"HuggingFace model classified as '{top.get('label')}' "
+                    f"with {score:.0%} confidence"
+                ),
+                "analysis_method": "huggingface_model",
+            }
 
-        response = self.client.chat.completions.create(
-            model=Config.GITHUB_MODEL_NAME,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=1,
-        )
+        raise ValueError("Unexpected response format from HuggingFace API")
 
-        response_text = response.choices[0].message.content.strip()
+    def _fallback_analysis(self, audio_bytes, audio_format, language):
+        """Heuristic fallback when HuggingFace API is unavailable."""
+        try:
+            audio_features = AudioProcessor.extract_audio_features(
+                audio_bytes, audio_format
+            )
+        except Exception:
+            return {
+                "classification": "HUMAN",
+                "confidence_score": 0.50,
+                "explanation": "Unable to analyze audio. Default classification applied.",
+                "analysis_method": "default_fallback",
+            }
 
-        # Strip markdown fences if present
-        if '```json' in response_text:
-            response_text = response_text.split('```json', 1)[1]
-            response_text = response_text.split('```', 1)[0]
-        elif '```' in response_text:
-            response_text = response_text.split('```', 1)[1]
-            response_text = response_text.split('```', 1)[0]
-
-        if '{' in response_text:
-            response_text = response_text[response_text.find('{'):response_text.rfind('}') + 1]
-
-        result = json.loads(response_text)
-
-        if 'classification' not in result or 'confidence_score' not in result:
-            raise ValueError("LLM returned invalid JSON structure")
-
-        if result['classification'] not in ('AI_GENERATED', 'HUMAN'):
-            result['classification'] = 'HUMAN'
-
-        result['confidence_score'] = max(0.0, min(1.0, float(result['confidence_score'])))
-        result['analysis_method'] = 'llm'
-        return result
-
-    def _fallback_analysis(self, audio_features, language):
-        """Heuristic fallback when GitHub Models is unavailable."""
         ai_indicators = 0
         if audio_features['rms_energy'] > 0.1:
             ai_indicators += 1
@@ -372,7 +428,7 @@ Respond ONLY with a single valid JSON object:
 # ---------------------------------------------------------------------------
 # INITIALISE
 # ---------------------------------------------------------------------------
-voice_detector = VoiceDetector(github_ai_client)
+voice_detector = VoiceDetector()
 
 # ---------------------------------------------------------------------------
 # ROUTES
@@ -434,29 +490,27 @@ def voice_detection():
                 "message": f"Audio file too large. Maximum size: {Config.MAX_AUDIO_SIZE // (1024*1024)}MB",
             }), 400
 
-        # --- Feature extraction ---
+        # --- Compress audio if base64 > 10 KB ---
         try:
-            logger.info("STEP 5: Extracting audio features...")
-            audio_features = AudioProcessor.extract_audio_features(audio_bytes, audio_format)
-            logger.info(f"STEP 5: Features extracted - duration={audio_features['duration']:.2f}s, "
-                        f"sample_rate={audio_features['sample_rate']}, "
-                        f"rms_energy={audio_features['rms_energy']:.6f}, "
-                        f"spectral_centroid={audio_features['spectral_centroid']:.2f}")
+            logger.info("STEP 4.5: Checking if audio needs compression...")
+            audio_bytes, audio_format = AudioProcessor.compress_audio_if_needed(
+                audio_bytes, audio_format, target_base64_kb=10
+            )
         except ValueError as e:
-            logger.error(f"STEP 5 FAILED: Feature extraction error: {e}")
+            logger.error(f"STEP 4.5 FAILED: Compression error: {e}")
             return jsonify({
                 "status": "error",
                 "error_type": "processing_error",
                 "message": str(e),
             }), 422
 
-        # --- Voice analysis ---
-        logger.info("STEP 6: Sending to LLM for voice analysis...")
-        analysis_result = voice_detector.analyze_voice(audio_features, language)
-        logger.info(f"STEP 6: Analysis complete - method={analysis_result.get('analysis_method')}, "
+        # --- Voice analysis via HuggingFace ---
+        logger.info("STEP 5: Sending audio to HuggingFace model for analysis...")
+        analysis_result = voice_detector.analyze_voice(audio_bytes, audio_format, language)
+        logger.info(f"STEP 5: Analysis complete - method={analysis_result.get('analysis_method')}, "
                     f"classification={analysis_result['classification']}, "
                     f"confidence={analysis_result['confidence_score']:.2f}")
-        logger.info(f"STEP 6: Explanation: {analysis_result.get('explanation', 'N/A')}")
+        logger.info(f"STEP 5: Explanation: {analysis_result.get('explanation', 'N/A')}")
         logger.info("="*60)
 
         return jsonify({
@@ -483,8 +537,8 @@ def health_check():
     return jsonify({
         "status": "healthy",
         "supported_languages": Config.SUPPORTED_LANGUAGES,
-        "github_models_available": github_ai_client is not None,
-        "model": Config.GITHUB_MODEL_NAME,
+        "huggingface_configured": Config.HF_API_TOKEN is not None,
+        "model": Config.HF_MODEL_ID,
     }), 200
 
 # ---------------------------------------------------------------------------
