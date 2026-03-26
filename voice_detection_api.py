@@ -35,7 +35,7 @@ class Config:
     HF_MAX_RETRIES = 3
     HF_RETRY_DELAY = 2  # seconds (initial backoff)
     HF_MODEL_ID = "MelodyMachine/Deepfake-audio-detection-V2"
-    HF_API_URL = "https://api-inference.huggingface.co/models/" + HF_MODEL_ID
+    HF_API_URL = "https://router.huggingface.co/models/" + HF_MODEL_ID
 
 # Validate environment variables at startup
 if not Config.HF_API_TOKEN:
