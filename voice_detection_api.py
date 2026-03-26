@@ -5,9 +5,9 @@ import os
 import tempfile
 import json
 import time
-import requests as http_requests
 import logging
 from functools import wraps
+from huggingface_hub import InferenceClient
 import librosa
 import numpy as np
 from pydub import AudioSegment
@@ -35,7 +35,6 @@ class Config:
     HF_MAX_RETRIES = 3
     HF_RETRY_DELAY = 2  # seconds (initial backoff)
     HF_MODEL_ID = "MelodyMachine/Deepfake-audio-detection-V2"
-    HF_API_URL = "https://router.huggingface.co/models/" + HF_MODEL_ID
 
 # Validate environment variables at startup
 if not Config.HF_API_TOKEN:
@@ -319,10 +318,9 @@ class AudioProcessor:
 # ---------------------------------------------------------------------------
 class VoiceDetector:
     def __init__(self):
-        self.api_url = Config.HF_API_URL
-        self.headers = {}
-        if Config.HF_API_TOKEN:
-            self.headers["Authorization"] = f"Bearer {Config.HF_API_TOKEN}"
+        self.client = InferenceClient(
+            token=Config.HF_API_TOKEN or None,
+        )
 
     def analyze_voice(self, audio_bytes, audio_format, language):
         """Analyse voice with retries on rate-limit / transient errors."""
@@ -356,46 +354,30 @@ class VoiceDetector:
         if not Config.HF_API_TOKEN:
             raise RuntimeError("HuggingFace API token not configured")
 
-        skip_ssl = os.getenv('DEV_SKIP_SSL', '').lower() in ('1', 'true')
-        response = http_requests.post(
-            self.api_url,
-            headers=self.headers,
-            data=audio_bytes,
-            timeout=30,
-            verify=not skip_ssl,
+        results = self.client.audio_classification(
+            audio=audio_bytes,
+            model=Config.HF_MODEL_ID,
         )
-        if skip_ssl:
-            import urllib3
-            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-        if response.status_code == 503:
-            raise RuntimeError("HuggingFace model is loading, please retry")
+        if results and len(results) > 0:
+            top = max(results, key=lambda x: x.score)
+            label = top.label.lower()
+            score = float(top.score)
 
-        if response.status_code != 200:
-            raise RuntimeError(
-                f"HuggingFace API error {response.status_code}: {response.text}"
-            )
-
-        results = response.json()
-
-        if isinstance(results, dict) and 'error' in results:
-            raise RuntimeError(f"HuggingFace API: {results['error']}")
-
-        if isinstance(results, list) and len(results) > 0:
-            top = max(results, key=lambda x: x.get('score', 0))
-            label = top.get('label', '').upper()
-            score = float(top.get('score', 0.5))
-
-            if any(kw in label for kw in ['AI', 'FAKE', 'SPOOF', 'SYNTHETIC', 'GENERATED']):
+            if label == 'fake':
                 classification = 'AI_GENERATED'
+            elif label == 'real':
+                classification = 'HUMAN'
             else:
+                # Unexpected label — log and default to HUMAN
+                logger.warning(f"Unexpected model label: '{top.label}'")
                 classification = 'HUMAN'
 
             return {
                 "classification": classification,
                 "confidence_score": round(score, 2),
                 "explanation": (
-                    f"HuggingFace model classified as '{top.get('label')}' "
+                    f"HuggingFace model classified as '{top.label}' "
                     f"with {score:.0%} confidence"
                 ),
                 "analysis_method": "huggingface_model",

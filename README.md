@@ -93,7 +93,7 @@ Follow the detailed instructions in `DEPLOYMENT_GUIDE.md` for:
 
 ✅ **Multi-language Support**: Tamil, English, Hindi, Malayalam, Telugu  
 ✅ **Flexible Input**: MP3 audio input via Base64 encoding  
-✅ **AI-Powered**: Uses HuggingFace Inference API (wav2vec2 deepfake detection model)  
+✅ **AI-Powered**: Uses HuggingFace `InferenceClient` with `audio_classification()` ([MelodyMachine/Deepfake-audio-detection-V2](https://huggingface.co/MelodyMachine/Deepfake-audio-detection-V2) — wav2vec2-based, outputs `fake`/`real` labels)  
 ✅ **RESTful API**: Clean JSON request/response format  
 ✅ **Secure Authentication**: API key-based authentication  
 ✅ **Error Handling**: Comprehensive error responses  

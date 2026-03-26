@@ -8,4 +8,5 @@ python-dotenv>=1.0.0
 soundfile>=0.12.1
 ffmpeg-python>=0.2.0
 requests>=2.31.0
+huggingface_hub>=0.20.0
 setuptools>=65.0.0
