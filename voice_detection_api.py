@@ -319,6 +319,7 @@ class AudioProcessor:
 class VoiceDetector:
     def __init__(self):
         self.client = InferenceClient(
+            model=Config.HF_MODEL_ID,
             token=Config.HF_API_TOKEN or None,
         )
 
@@ -356,8 +357,6 @@ class VoiceDetector:
 
         results = self.client.audio_classification(
             audio=audio_bytes,
-            model=Config.HF_MODEL_ID,
-            provider="hf-inference",
         )
 
         if results and len(results) > 0:
