@@ -24,7 +24,7 @@ This folder contains a complete AI Voice Detection API solution that can detect 
 
 ### Prerequisites
 - Python 3.8 or higher
-- GitHub account with a Personal Access Token (for GitHub Models API)
+- HuggingFace account with an API Token (from https://huggingface.co/settings/tokens)
 
 ### 1. **Clone & Install Dependencies**
    ```bash
@@ -42,23 +42,18 @@ This folder contains a complete AI Voice Detection API solution that can detect 
    
    Then edit `.env` with your actual values:
    ```bash
-   GITHUB_TOKEN=your_github_token_here
+   HF_API_TOKEN=your_huggingface_token_here
    API_SECRET_KEY=your_custom_secret_key_here
-   FLASK_ENV=development
-   FLASK_DEBUG=True
-   PORT=5000
-   SECRET_KEY=your_flask_secret_key_here
    ```
 
    **How to get API keys:**
-   - **GITHUB_TOKEN**: Get from [GitHub Settings](https://github.com/settings/tokens)
-     1. Go to https://github.com/settings/tokens
-     2. Click "Generate new token (classic)"
-     3. Select the required scopes for GitHub Models access
+   - **HF_API_TOKEN**: Get from [HuggingFace Settings](https://huggingface.co/settings/tokens)
+     1. Go to https://huggingface.co/settings/tokens
+     2. Click "Create new token"
+     3. Select "Read" access
      4. Copy the token to your `.env` file
    
    - **API_SECRET_KEY**: Create your own secure random string (e.g., `sk_voice_detection_2024_your_random_string`)
-   - **SECRET_KEY**: Generate a secure random key for Flask sessions
 
    **⚠️ Security Note:** Never commit the `.env` file to GitHub! It's already added to `.gitignore`.
 
@@ -91,16 +86,14 @@ Follow the detailed instructions in `DEPLOYMENT_GUIDE.md` for:
 1. Push your code to GitHub (without `.env` file)
 2. Connect your GitHub repo to Render
 3. Set environment variables in Render dashboard:
-   - `GITHUB_TOKEN` = your GitHub Personal Access Token
+   - `HF_API_TOKEN` = your HuggingFace API Token
    - `API_SECRET_KEY` = your custom secret key
-   - `FLASK_ENV` = production
-   - `FLASK_DEBUG` = False
 
 ## 🎯 Features
 
 ✅ **Multi-language Support**: Tamil, English, Hindi, Malayalam, Telugu  
 ✅ **Flexible Input**: MP3 audio input via Base64 encoding  
-✅ **AI-Powered**: Uses GitHub Models (GPT-4o) via OpenAI-compatible API  
+✅ **AI-Powered**: Uses HuggingFace Inference API (wav2vec2 deepfake detection model)  
 ✅ **RESTful API**: Clean JSON request/response format  
 ✅ **Secure Authentication**: API key-based authentication  
 ✅ **Error Handling**: Comprehensive error responses  
@@ -143,7 +136,7 @@ curl https://your-app-name.onrender.com/health
 
 | Variable | Required | Description | Example |
 |----------|----------|-------------|---------|
-| `GITHUB_TOKEN` | Yes | GitHub Personal Access Token | `ghp_xxxx...` |
+| `HF_API_TOKEN` | Yes | HuggingFace API Token | `hf_xxxx...` |
 | `API_SECRET_KEY` | Yes | Your custom API authentication key | `sk_voice_2024_...` |
 | `FLASK_ENV` | No | Flask environment mode | `development` or `production` |
 | `FLASK_DEBUG` | No | Enable/disable debug mode | `True` or `False` |

@@ -20,8 +20,8 @@ This guide will help you deploy the AI Voice Detection API that can detect wheth
 
 - **Docker-based deployment** — system dependencies (ffmpeg, libsndfile) are installed reliably inside the Docker image, avoiding read-only filesystem issues on platforms like Render.
 - **Rate limiting** — 60 requests/min globally, 30 requests/min on the detection endpoint (Flask-Limiter).
-- **Retry with exponential back-off** — automatic retries (up to 3) on GitHub Models rate-limit or transient errors.
-- **Heuristic fallback** — if the LLM is unavailable, a feature-based heuristic still returns a classification.
+- **Retry with exponential back-off** — automatic retries (up to 3) on HuggingFace API rate-limit or transient errors.
+- **Heuristic fallback** — if the HuggingFace model is unavailable, a feature-based heuristic still returns a classification.
 - **All-JSON responses** — every response (including errors, 404s, and rate-limit breaches) is guaranteed JSON.
 
 ---
@@ -56,7 +56,7 @@ This guide will help you deploy the AI Voice Detection API that can detect wheth
 4. **Set Environment Variables**
    - In Render dashboard → your service → **Environment** tab
    - Add:
-     - `GITHUB_TOKEN` — Your GitHub Personal Access Token (with GitHub Models access)
+     - `HF_API_TOKEN` — Your HuggingFace API Token (from https://huggingface.co/settings/tokens)
      - `API_SECRET_KEY` — Your custom API key (e.g., `sk_live_your_secret_key`)
 
 5. **Deploy**
@@ -78,7 +78,7 @@ This guide will help you deploy the AI Voice Detection API that can detect wheth
    # Set the stack to container (Docker)
    heroku stack:set container
 
-   heroku config:set GITHUB_TOKEN=your_github_token
+   heroku config:set HF_API_TOKEN=your_huggingface_token
    heroku config:set API_SECRET_KEY=sk_live_your_secret_key
 
    git push heroku main
@@ -89,7 +89,7 @@ This guide will help you deploy the AI Voice Detection API that can detect wheth
 1. Sign up at [railway.app](https://railway.app)
 2. Click **Deploy from GitHub repo** and select your repository
 3. Railway auto-detects the Dockerfile
-4. Set environment variables (`GITHUB_TOKEN`, `API_SECRET_KEY`) in the Railway dashboard
+4. Set environment variables (`HF_API_TOKEN`, `API_SECRET_KEY`) in the Railway dashboard
 5. Deploy automatically
 
 ### Option 4: Google Cloud Run
@@ -110,7 +110,7 @@ gcloud run deploy voice-detection-api \
   --platform managed \
   --region us-central1 \
   --allow-unauthenticated \
-  --set-env-vars GITHUB_TOKEN=your_token,API_SECRET_KEY=your_key
+  --set-env-vars HF_API_TOKEN=your_token,API_SECRET_KEY=your_key
 ```
 
 ---
@@ -149,7 +149,7 @@ gcloud run deploy voice-detection-api \
    ```bash
    docker build -t voice-detection-api .
    docker run -p 5000:10000 \
-     -e GITHUB_TOKEN=your_token \
+     -e HF_API_TOKEN=your_token \
      -e API_SECRET_KEY=your_key \
      voice-detection-api
    ```
@@ -208,8 +208,8 @@ Error types: `validation_error`, `authentication_error`, `processing_error`, `ra
 {
     "status": "healthy",
     "supported_languages": ["Tamil", "English", "Hindi", "Malayalam", "Telugu"],
-    "github_models_available": true,
-    "model": "gpt-4o"
+    "huggingface_configured": true,
+    "model": "MelodyMachine/Deepfake-audio-detection-V2"
 }
 ```
 
@@ -264,7 +264,7 @@ print(response.json())
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `GITHUB_TOKEN` | GitHub Personal Access Token (GitHub Models) | **Required** |
+| `HF_API_TOKEN` | HuggingFace API Token (from huggingface.co/settings/tokens) | **Required** |
 | `API_SECRET_KEY` | API authentication key for `x-api-key` header | **Required** |
 | `PORT` | Port number | `5000` (local) / `10000` (Docker) |
 
@@ -316,7 +316,7 @@ GET https://your-deployed-url.com/health
 
 | Symptom | Cause & Fix |
 |---------|-------------|
-| **"GitHub Models client not initialized"** | `GITHUB_TOKEN` is missing or invalid. Verify at https://github.com/settings/tokens |
+| **"HuggingFace API token not configured"** | `HF_API_TOKEN` is missing or invalid. Verify at https://huggingface.co/settings/tokens |
 | **"Invalid or missing API key"** | `x-api-key` header doesn't match `API_SECRET_KEY` env var |
 | **"Failed to process audio file"** | Invalid MP3, bad Base64, or file > 10 MB |
 | **429 Too Many Requests** | Rate limit hit — wait and retry |
