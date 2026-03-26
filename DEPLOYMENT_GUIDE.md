@@ -4,29 +4,18 @@
 
 This guide will help you deploy the AI Voice Detection API that can detect whether an audio sample (MP3) is AI-generated or human across 5 languages: Tamil, English, Hindi, Malayalam, and Telugu.
 
-## Project Files
+## 📁 Files Created
 
-| File | Description |
-|------|-------------|
-| `voice_detection_api.py` | Main Flask API application |
-| `requirements_voice_api.txt` | Python dependencies |
-| `packages.txt` | System-level dependencies (ffmpeg, libsndfile) |
-| `Dockerfile` | Docker image definition for deployment |
-| `render.yaml` | Render.com deployment config (Docker runtime) |
-| `test_payload.json` | Sample JSON payload for testing |
-| `.env.example` | Environment variables template |
+- `voice_detection_api.py` - Main Flask API application
+- `requirements_voice_api.txt` - Python dependencies
+- `test_voice_api.py` - Test client for the API
+- `.env.example` - Environment variables template
+- `Dockerfile` - Docker configuration
+- `render.yaml` - Render.com deployment config
+- `Procfile` - Heroku deployment config
+- `app.json` - App metadata
 
-## Key Features
-
-- **Docker-based deployment** — system dependencies (ffmpeg, libsndfile) are installed reliably inside the Docker image, avoiding read-only filesystem issues on platforms like Render.
-- **Rate limiting** — 60 requests/min globally, 30 requests/min on the detection endpoint (Flask-Limiter).
-- **Retry with exponential back-off** — automatic retries (up to 3) on HuggingFace API rate-limit or transient errors.
-- **Heuristic fallback** — if the HuggingFace model is unavailable, a feature-based heuristic still returns a classification.
-- **All-JSON responses** — every response (including errors, 404s, and rate-limit breaches) is guaranteed JSON.
-
----
-
-## Step-by-Step Deployment
+## 🚀 Step-by-Step Deployment
 
 ### Option 1: Deploy to Render.com (FREE - Recommended)
 
@@ -56,8 +45,8 @@ This guide will help you deploy the AI Voice Detection API that can detect wheth
 4. **Set Environment Variables**
    - In Render dashboard → your service → **Environment** tab
    - Add:
-     - `HF_API_TOKEN` — Your HuggingFace API Token (from https://huggingface.co/settings/tokens)
-     - `API_SECRET_KEY` — Your custom API key (e.g., `sk_live_your_secret_key`)
+     - `HF_API_TOKEN`: Your HuggingFace API token (from https://huggingface.co/settings/tokens)
+     - `API_SECRET_KEY`: Your custom API key (e.g., `sk_live_your_secret_key`)
 
 5. **Deploy**
    - Click **Create Web Service**
@@ -74,10 +63,8 @@ This guide will help you deploy the AI Voice Detection API that can detect wheth
    ```bash
    heroku login
    heroku create your-voice-detection-api
-
-   # Set the stack to container (Docker)
-   heroku stack:set container
-
+   
+   # Set environment variables
    heroku config:set HF_API_TOKEN=your_huggingface_token
    heroku config:set API_SECRET_KEY=sk_live_your_secret_key
 
@@ -86,36 +73,92 @@ This guide will help you deploy the AI Voice Detection API that can detect wheth
 
 ### Option 3: Railway.app
 
-1. Sign up at [railway.app](https://railway.app)
-2. Click **Deploy from GitHub repo** and select your repository
-3. Railway auto-detects the Dockerfile
-4. Set environment variables (`HF_API_TOKEN`, `API_SECRET_KEY`) in the Railway dashboard
-5. Deploy automatically
+1. **Go to Railway.app**
+   - Sign up at [railway.app](https://railway.app)
 
-### Option 4: Google Cloud Run
+2. **Deploy from GitHub**
+   - Click "Deploy from GitHub repo"
+   - Select your repository
+   - Set environment variables in Railway dashboard
+   - Deploy automatically
+
+### Option 4: Google Cloud Run (FREE tier)
+
+1. **Build and deploy with Docker**
+   ```bash
+   # Build Docker image
+   docker build -t voice-detection-api .
+   
+   # Tag for Google Cloud
+   docker tag voice-detection-api gcr.io/YOUR_PROJECT_ID/voice-detection-api
+   
+   # Push to Google Container Registry
+   docker push gcr.io/YOUR_PROJECT_ID/voice-detection-api
+   
+   # Deploy to Cloud Run
+   gcloud run deploy voice-detection-api \
+     --image gcr.io/YOUR_PROJECT_ID/voice-detection-api \
+     --platform managed \
+     --region us-central1 \
+     --allow-unauthenticated
+   ```
+
+## 🧪 Testing Your Deployed API
+
+### Using the Test Script
+
+1. **Update the test script**
+   ```python
+   # In test_voice_api.py, change the URL
+   client = VoiceDetectionClient("https://your-deployed-url.com")
+   ```
+
+2. **Run tests**
+   ```bash
+   python test_voice_api.py
+   ```
+
+### Using cURL
 
 ```bash
-# Build Docker image
-docker build -t voice-detection-api .
-
-# Tag for Google Cloud
-docker tag voice-detection-api gcr.io/YOUR_PROJECT_ID/voice-detection-api
-
-# Push to Google Container Registry
-docker push gcr.io/YOUR_PROJECT_ID/voice-detection-api
-
-# Deploy to Cloud Run
-gcloud run deploy voice-detection-api \
-  --image gcr.io/YOUR_PROJECT_ID/voice-detection-api \
-  --platform managed \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --set-env-vars HF_API_TOKEN=your_token,API_SECRET_KEY=your_key
+curl -X POST https://your-deployed-url.com/api/voice-detection \
+-H "Content-Type: application/json" \
+-H "x-api-key: sk_live_your_secret_key" \
+-d '{
+    "language": "English",
+    "audioFormat": "mp3",
+    "audioBase64": "BASE64_ENCODED_AUDIO_DATA"
+}'
 ```
 
----
+### Using Python Requests
 
-## Local Development & Testing
+```python
+import requests
+import base64
+
+# Encode your audio file
+with open("sample.mp3", "rb") as f:
+    audio_base64 = base64.b64encode(f.read()).decode()
+
+# Make request
+response = requests.post(
+    "https://your-deployed-url.com/api/voice-detection",
+    headers={
+        "Content-Type": "application/json",
+        "x-api-key": "sk_live_your_secret_key"
+    },
+    json={
+        "language": "English",
+        "audioFormat": "mp3",
+        "audioBase64": audio_base64
+    }
+)
+
+print(response.json())
+```
+
+## 🔧 Local Development & Testing
 
 1. **Setup Environment**
    ```bash
@@ -147,11 +190,7 @@ gcloud run deploy voice-detection-api \
 
 4. **Run with Docker Locally** *(optional)*
    ```bash
-   docker build -t voice-detection-api .
-   docker run -p 5000:10000 \
-     -e HF_API_TOKEN=your_token \
-     -e API_SECRET_KEY=your_key \
-     voice-detection-api
+   python test_voice_api.py
    ```
 
 ---
@@ -264,9 +303,10 @@ print(response.json())
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `HF_API_TOKEN` | HuggingFace API Token (from huggingface.co/settings/tokens) | **Required** |
-| `API_SECRET_KEY` | API authentication key for `x-api-key` header | **Required** |
-| `PORT` | Port number | `5000` (local) / `10000` (Docker) |
+| `HF_API_TOKEN` | Your HuggingFace API token | Required |
+| `API_SECRET_KEY` | Your API authentication key | Required |
+| `PORT` | Port number | 5000 |
+| `FLASK_ENV` | Flask environment | production |
 
 ### Supported Languages
 
@@ -301,24 +341,53 @@ Tamil, English, Hindi, Malayalam, Telugu
 ## Monitoring & Logs
 
 ### Health Check
-```
-GET https://your-deployed-url.com/health
-```
+Visit: `https://your-deployed-url.com/health`
 
-### Platform Logs
-- **Render:** Dashboard → Your Service → Logs
-- **Heroku:** `heroku logs --tail`
-- **Railway:** Dashboard → Your Project → Deployments
+## 🛠️ Troubleshooting
 
----
+### Common Issues
 
-## Troubleshooting
+1. **"HuggingFace API token not configured"**
+   - Check your HF_API_TOKEN environment variable
+   - Verify token is valid at https://huggingface.co/settings/tokens
 
-| Symptom | Cause & Fix |
-|---------|-------------|
-| **"HuggingFace API token not configured"** | `HF_API_TOKEN` is missing or invalid. Verify at https://huggingface.co/settings/tokens |
-| **"Invalid or missing API key"** | `x-api-key` header doesn't match `API_SECRET_KEY` env var |
-| **"Failed to process audio file"** | Invalid MP3, bad Base64, or file > 10 MB |
-| **429 Too Many Requests** | Rate limit hit — wait and retry |
-| **Build fails with "Read-only file system"** | Service is using Python runtime instead of Docker. Delete and recreate the service so Render detects the Dockerfile. |
-| **Deployment timeout** | Free-tier cold starts can take 30–60 s. The Docker image build may take ~5 min on first deploy. |
+2. **"Invalid API key"**
+   - Check x-api-key header in your requests
+   - Verify API_SECRET_KEY environment variable
+
+3. **"Audio processing failed"**
+   - Ensure audio is valid MP3 format
+   - Check base64 encoding is correct
+   - Verify file size is under 10MB
+
+4. **Deployment failed**
+   - Check all required files are uploaded
+   - Verify requirements.txt is correct
+   - Check environment variables are set
+
+### Getting Help
+
+1. Check the `/health` endpoint
+2. Review application logs
+3. Test with the provided test script
+4. Verify all environment variables are set correctly
+
+## 🎉 Success!
+
+Once deployed, your API will be available at your chosen platform's URL. You can now:
+
+1. Accept MP3 audio files in Base64 format
+2. Detect AI-generated vs Human voices
+3. Support 5 languages (Tamil, English, Hindi, Malayalam, Telugu)
+4. Return JSON responses with classification and confidence scores
+5. Handle authentication with API keys
+
+Your free public URL endpoint is now ready for production use!
+
+## 💡 Next Steps
+
+1. **Monitor Usage**: Set up monitoring for API calls
+2. **Improve Accuracy**: Fine-tune the detection algorithm based on real data
+3. **Scale**: Upgrade to paid plans if you need higher limits
+4. **Security**: Implement rate limiting for production use
+5. **Documentation**: Create API documentation for users
