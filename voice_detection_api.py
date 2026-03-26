@@ -262,6 +262,17 @@ class AudioProcessor:
                     pass
 
     @staticmethod
+    def _get_tempo(y, sr):
+        """Get tempo, compatible with both old and new librosa versions."""
+        try:
+            # librosa >= 0.10.2
+            tempo = librosa.feature.rhythm.tempo(y=y, sr=sr)
+        except AttributeError:
+            # librosa < 0.10.2
+            tempo = librosa.beat.tempo(y=y, sr=sr)
+        return float(tempo[0]) if len(tempo) > 0 else 0.0
+
+    @staticmethod
     def extract_audio_features(audio_bytes, audio_format='mp3'):
         """Extract audio features for analysis."""
         temp_path = None
@@ -288,8 +299,7 @@ class AudioProcessor:
                 'spectral_centroid': float(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr))),
                 'zero_crossing_rate': float(np.mean(librosa.feature.zero_crossing_rate(y))),
                 'mfcc_mean': [float(x) for x in np.mean(librosa.feature.mfcc(y=y, sr=sr), axis=1)[:13]],
-                'tempo': float(librosa.feature.rhythm.tempo(y=y, sr=sr)[0])
-                         if len(librosa.feature.rhythm.tempo(y=y, sr=sr)) > 0 else 0.0,
+                'tempo': float(AudioProcessor._get_tempo(y, sr)),
             }
             return features
 
@@ -346,13 +356,17 @@ class VoiceDetector:
         if not Config.HF_API_TOKEN:
             raise RuntimeError("HuggingFace API token not configured")
 
+        skip_ssl = os.getenv('DEV_SKIP_SSL', '').lower() in ('1', 'true')
         response = http_requests.post(
             self.api_url,
             headers=self.headers,
             data=audio_bytes,
             timeout=30,
-            verify=not os.getenv('DEV_SKIP_SSL', '').lower() in ('1', 'true'),
+            verify=not skip_ssl,
         )
+        if skip_ssl:
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
         if response.status_code == 503:
             raise RuntimeError("HuggingFace model is loading, please retry")
