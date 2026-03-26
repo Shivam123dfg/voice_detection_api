@@ -346,7 +346,7 @@ class VoiceDetector:
                 elif not is_retryable:
                     break
 
-        logger.error(f"All HuggingFace API attempts failed: {last_error}")
+        logger.error(f"All HuggingFace API attempts failed: {type(last_error).__name__}: {last_error!r}")
         return self._fallback_analysis(audio_bytes, audio_format, language)
 
     def _call_hf_api(self, audio_bytes, language):
@@ -357,6 +357,7 @@ class VoiceDetector:
         results = self.client.audio_classification(
             audio=audio_bytes,
             model=Config.HF_MODEL_ID,
+            provider="hf-inference",
         )
 
         if results and len(results) > 0:
