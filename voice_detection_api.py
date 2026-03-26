@@ -34,8 +34,8 @@ class Config:
     MAX_AUDIO_SIZE = 10 * 1024 * 1024  # 10MB
     HF_MAX_RETRIES = 3
     HF_RETRY_DELAY = 2  # seconds (initial backoff)
-    HF_MODEL_ID = "Heem2/AI-Human-Audio-Detection"
-    HF_API_URL = "https://router.huggingface.co/models/" + HF_MODEL_ID
+    HF_MODEL_ID = "MelodyMachine/Deepfake-audio-detection-V2"
+    HF_API_URL = "https://api-inference.huggingface.co/models/" + HF_MODEL_ID
 
 # Validate environment variables at startup
 if not Config.HF_API_TOKEN:
