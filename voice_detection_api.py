@@ -20,6 +20,7 @@ import numpy as np
 from pydub import AudioSegment
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+import torch
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -94,8 +95,6 @@ def force_json_content_type(response):
             response.content_type = 'application/json'
     return response
 
-import torch
-
 # ---------------------------------------------------------------------------
 # LOAD MODEL LOCALLY AT STARTUP
 # ---------------------------------------------------------------------------
@@ -104,7 +103,7 @@ try:
     _pipeline_kwargs = {
         "task": "audio-classification",
         "model": Config.HF_MODEL_ID,
-        "torch_dtype": torch.float16,
+        "dtype": torch.float16,
         "device": "cpu",
     }
     if Config.HF_TOKEN:

@@ -1,3 +1,12 @@
+---
+title: Voice Detection API
+emoji: 🎙️
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_port: 7860
+---
+
 # AI Voice Detection API
 
 This folder contains a complete AI Voice Detection API solution that can detect whether an audio sample (MP3) is AI-generated or human across 5 languages.

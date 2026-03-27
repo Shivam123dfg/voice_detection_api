@@ -14,19 +14,15 @@ COPY requirements_voice_api.txt .
 RUN pip install --no-cache-dir -r requirements_voice_api.txt
 
 # Pre-download the model at build time so it's cached in the image
-ARG HF_TOKEN
 ENV HF_HUB_DISABLE_XET=1
-RUN if [ -n "$HF_TOKEN" ]; then \
-      HF_TOKEN=$HF_TOKEN python -c "from huggingface_hub import login; login(token='$HF_TOKEN'); from transformers import pipeline; pipeline('audio-classification', model='MelodyMachine/Deepfake-audio-detection-V2')"; \
-    else \
-      python -c "from transformers import pipeline; pipeline('audio-classification', model='MelodyMachine/Deepfake-audio-detection-V2')"; \
-    fi
+RUN python -c "from transformers import pipeline; pipeline('audio-classification', model='MelodyMachine/Deepfake-audio-detection-V2')"
 
 # Copy application code
 COPY . .
 
-# Expose port
-EXPOSE 10000
+# Default port (HuggingFace Spaces uses 7860)
+ENV PORT=7860
+EXPOSE 7860
 
 # Start the application (single worker to limit memory usage)
-CMD ["gunicorn", "--bind", "0.0.0.0:10000", "--workers", "1", "--timeout", "1000", "voice_detection_api:app"]
+CMD gunicorn --bind 0.0.0.0:${PORT} --workers 1 --timeout 300 voice_detection_api:app
