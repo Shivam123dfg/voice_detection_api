@@ -24,7 +24,7 @@ This folder contains a complete AI Voice Detection API solution that can detect 
 
 ### Prerequisites
 - Python 3.8 or higher
-- HuggingFace account with an API Token (from https://huggingface.co/settings/tokens)
+- ~1GB disk space for the model download
 
 ### 1. **Clone & Install Dependencies**
    ```bash
@@ -42,17 +42,10 @@ This folder contains a complete AI Voice Detection API solution that can detect 
    
    Then edit `.env` with your actual values:
    ```bash
-   HF_API_TOKEN=your_huggingface_token_here
    API_SECRET_KEY=your_custom_secret_key_here
    ```
 
    **How to get API keys:**
-   - **HF_API_TOKEN**: Get from [HuggingFace Settings](https://huggingface.co/settings/tokens)
-     1. Go to https://huggingface.co/settings/tokens
-     2. Click "Create new token"
-     3. Select "Read" access
-     4. Copy the token to your `.env` file
-   
    - **API_SECRET_KEY**: Create your own secure random string (e.g., `sk_voice_detection_2024_your_random_string`)
 
    **⚠️ Security Note:** Never commit the `.env` file to GitHub! It's already added to `.gitignore`.
@@ -86,14 +79,13 @@ Follow the detailed instructions in `DEPLOYMENT_GUIDE.md` for:
 1. Push your code to GitHub (without `.env` file)
 2. Connect your GitHub repo to Render
 3. Set environment variables in Render dashboard:
-   - `HF_API_TOKEN` = your HuggingFace API Token
    - `API_SECRET_KEY` = your custom secret key
 
 ## 🎯 Features
 
 ✅ **Multi-language Support**: Tamil, English, Hindi, Malayalam, Telugu  
 ✅ **Flexible Input**: MP3 audio input via Base64 encoding  
-✅ **AI-Powered**: Uses HuggingFace `InferenceClient` with `audio_classification()` ([MelodyMachine/Deepfake-audio-detection-V2](https://huggingface.co/MelodyMachine/Deepfake-audio-detection-V2) — wav2vec2-based, outputs `fake`/`real` labels)  
+✅ **AI-Powered**: Runs [MelodyMachine/Deepfake-audio-detection-V2](https://huggingface.co/MelodyMachine/Deepfake-audio-detection-V2) locally via `transformers` pipeline (wav2vec2-based, outputs `fake`/`real` labels)  
 ✅ **RESTful API**: Clean JSON request/response format  
 ✅ **Secure Authentication**: API key-based authentication  
 ✅ **Error Handling**: Comprehensive error responses  
@@ -136,7 +128,7 @@ curl https://your-app-name.onrender.com/health
 
 | Variable | Required | Description | Example |
 |----------|----------|-------------|---------|
-| `HF_API_TOKEN` | Yes | HuggingFace API Token | `hf_xxxx...` |
+
 | `API_SECRET_KEY` | Yes | Your custom API authentication key | `sk_voice_2024_...` |
 | `FLASK_ENV` | No | Flask environment mode | `development` or `production` |
 | `FLASK_DEBUG` | No | Enable/disable debug mode | `True` or `False` |

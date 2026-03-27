@@ -45,7 +45,6 @@ This guide will help you deploy the AI Voice Detection API that can detect wheth
 4. **Set Environment Variables**
    - In Render dashboard → your service → **Environment** tab
    - Add:
-     - `HF_API_TOKEN`: Your HuggingFace API token (from https://huggingface.co/settings/tokens)
      - `API_SECRET_KEY`: Your custom API key (e.g., `sk_live_your_secret_key`)
 
 5. **Deploy**
@@ -65,7 +64,6 @@ This guide will help you deploy the AI Voice Detection API that can detect wheth
    heroku create your-voice-detection-api
    
    # Set environment variables
-   heroku config:set HF_API_TOKEN=your_huggingface_token
    heroku config:set API_SECRET_KEY=sk_live_your_secret_key
 
    git push heroku main
@@ -247,7 +245,7 @@ Error types: `validation_error`, `authentication_error`, `processing_error`, `ra
 {
     "status": "healthy",
     "supported_languages": ["Tamil", "English", "Hindi", "Malayalam", "Telugu"],
-    "huggingface_configured": true,
+    "model_loaded": true,
     "model": "MelodyMachine/Deepfake-audio-detection-V2"
 }
 ```
@@ -303,7 +301,7 @@ print(response.json())
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `HF_API_TOKEN` | Your HuggingFace API token | Required |
+
 | `API_SECRET_KEY` | Your API authentication key | Required |
 | `PORT` | Port number | 5000 |
 | `FLASK_ENV` | Flask environment | production |
@@ -347,9 +345,9 @@ Visit: `https://your-deployed-url.com/health`
 
 ### Common Issues
 
-1. **"HuggingFace API token not configured"**
-   - Check your HF_API_TOKEN environment variable
-   - Verify token is valid at https://huggingface.co/settings/tokens
+1. **"Model not loaded"**
+   - The model failed to download at startup — check logs for disk space or network issues
+   - The Docker image should pre-download the model at build time
 
 2. **"Invalid API key"**
    - Check x-api-key header in your requests

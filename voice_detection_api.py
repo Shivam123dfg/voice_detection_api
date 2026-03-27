@@ -4,10 +4,9 @@ import io
 import os
 import tempfile
 import json
-import time
 import logging
 from functools import wraps
-from huggingface_hub import InferenceClient
+from transformers import pipeline
 import librosa
 import numpy as np
 from pydub import AudioSegment
@@ -28,17 +27,12 @@ app = Flask(__name__)
 # CONFIGURATION
 # ---------------------------------------------------------------------------
 class Config:
-    HF_API_TOKEN = os.getenv('HF_API_TOKEN')
     API_SECRET_KEY = os.getenv('API_SECRET_KEY')
     SUPPORTED_LANGUAGES = ['Tamil', 'English', 'Hindi', 'Malayalam', 'Telugu']
     MAX_AUDIO_SIZE = 10 * 1024 * 1024  # 10MB
-    HF_MAX_RETRIES = 3
-    HF_RETRY_DELAY = 2  # seconds (initial backoff)
     HF_MODEL_ID = "MelodyMachine/Deepfake-audio-detection-V2"
 
 # Validate environment variables at startup
-if not Config.HF_API_TOKEN:
-    logger.warning("HF_API_TOKEN is not set. Voice detection will use heuristic fallback only.")
 if not Config.API_SECRET_KEY:
     logger.warning("API_SECRET_KEY is not set. Protected endpoints will reject all requests until it is configured.")
 
@@ -96,12 +90,18 @@ def force_json_content_type(response):
     return response
 
 # ---------------------------------------------------------------------------
-# HUGGINGFACE MODEL CONFIGURATION
+# LOAD MODEL LOCALLY AT STARTUP
 # ---------------------------------------------------------------------------
-if Config.HF_API_TOKEN:
-    logger.info(f"HuggingFace configured: model={Config.HF_MODEL_ID}")
-else:
-    logger.warning("HuggingFace API token not set, will use heuristic fallback")
+logger.info(f"Loading model locally: {Config.HF_MODEL_ID}...")
+try:
+    audio_classifier = pipeline(
+        "audio-classification",
+        model=Config.HF_MODEL_ID,
+    )
+    logger.info(f"Model loaded successfully: {Config.HF_MODEL_ID}")
+except Exception as e:
+    logger.error(f"Failed to load model: {e}")
+    audio_classifier = None
 
 # ---------------------------------------------------------------------------
 # AUTHENTICATION DECORATOR
@@ -318,72 +318,61 @@ class AudioProcessor:
 # ---------------------------------------------------------------------------
 class VoiceDetector:
     def __init__(self):
-        self.client = InferenceClient(
-            model=Config.HF_MODEL_ID,
-            token=Config.HF_API_TOKEN or None,
-        )
+        self.classifier = audio_classifier
 
     def analyze_voice(self, audio_bytes, audio_format, language):
-        """Analyse voice with retries on rate-limit / transient errors."""
-        last_error = None
+        """Analyse voice using locally loaded model."""
+        try:
+            return self._classify_audio(audio_bytes, audio_format)
+        except Exception as e:
+            logger.error(f"Model inference failed: {type(e).__name__}: {e!r}")
+            return self._fallback_analysis(audio_bytes, audio_format, language)
 
-        for attempt in range(1, Config.HF_MAX_RETRIES + 1):
-            try:
-                return self._call_hf_api(audio_bytes, language)
-            except Exception as e:
-                last_error = e
-                error_msg = str(e).lower()
-                is_retryable = any(
-                    kw in error_msg
-                    for kw in ['429', 'rate', 'quota', 'loading', '503', 'timeout', 'connection', 'resolve']
-                )
-                if is_retryable and attempt < Config.HF_MAX_RETRIES:
-                    wait = Config.HF_RETRY_DELAY * (2 ** (attempt - 1))
-                    logger.warning(
-                        f"HuggingFace API issue (attempt {attempt}/{Config.HF_MAX_RETRIES}). "
-                        f"Retrying in {wait}s..."
-                    )
-                    time.sleep(wait)
-                elif not is_retryable:
-                    break
+    def _classify_audio(self, audio_bytes, audio_format):
+        """Run audio classification using local transformers pipeline."""
+        if self.classifier is None:
+            raise RuntimeError("Model not loaded")
 
-        logger.error(f"All HuggingFace API attempts failed: {type(last_error).__name__}: {last_error!r}")
-        return self._fallback_analysis(audio_bytes, audio_format, language)
+        # Save audio bytes to a temp file for the pipeline
+        temp_path = None
+        try:
+            suffix = f'.{audio_format}'
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                tmp.write(audio_bytes)
+                temp_path = tmp.name
 
-    def _call_hf_api(self, audio_bytes, language):
-        """Call HuggingFace Inference API for audio classification."""
-        if not Config.HF_API_TOKEN:
-            raise RuntimeError("HuggingFace API token not configured")
+            results = self.classifier(temp_path)
 
-        results = self.client.audio_classification(
-            audio=audio_bytes,
-        )
+            if results and len(results) > 0:
+                top = max(results, key=lambda x: x['score'])
+                label = top['label'].lower()
+                score = float(top['score'])
 
-        if results and len(results) > 0:
-            top = max(results, key=lambda x: x.score)
-            label = top.label.lower()
-            score = float(top.score)
+                if label == 'fake':
+                    classification = 'AI_GENERATED'
+                elif label == 'real':
+                    classification = 'HUMAN'
+                else:
+                    logger.warning(f"Unexpected model label: '{top['label']}'")
+                    classification = 'HUMAN'
 
-            if label == 'fake':
-                classification = 'AI_GENERATED'
-            elif label == 'real':
-                classification = 'HUMAN'
-            else:
-                # Unexpected label — log and default to HUMAN
-                logger.warning(f"Unexpected model label: '{top.label}'")
-                classification = 'HUMAN'
+                return {
+                    "classification": classification,
+                    "confidence_score": round(score, 2),
+                    "explanation": (
+                        f"Model classified as '{top['label']}' "
+                        f"with {score:.0%} confidence"
+                    ),
+                    "analysis_method": "local_model",
+                }
 
-            return {
-                "classification": classification,
-                "confidence_score": round(score, 2),
-                "explanation": (
-                    f"HuggingFace model classified as '{top.label}' "
-                    f"with {score:.0%} confidence"
-                ),
-                "analysis_method": "huggingface_model",
-            }
-
-        raise ValueError("Unexpected response format from HuggingFace API")
+            raise ValueError("No results from model")
+        finally:
+            if temp_path:
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
 
     def _fallback_analysis(self, audio_bytes, audio_format, language):
         """Heuristic fallback when HuggingFace API is unavailable."""
@@ -533,7 +522,7 @@ def health_check():
     return jsonify({
         "status": "healthy",
         "supported_languages": Config.SUPPORTED_LANGUAGES,
-        "huggingface_configured": Config.HF_API_TOKEN is not None,
+        "model_loaded": audio_classifier is not None,
         "model": Config.HF_MODEL_ID,
     }), 200
 
