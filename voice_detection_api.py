@@ -94,6 +94,8 @@ def force_json_content_type(response):
             response.content_type = 'application/json'
     return response
 
+import torch
+
 # ---------------------------------------------------------------------------
 # LOAD MODEL LOCALLY AT STARTUP
 # ---------------------------------------------------------------------------
@@ -102,6 +104,8 @@ try:
     _pipeline_kwargs = {
         "task": "audio-classification",
         "model": Config.HF_MODEL_ID,
+        "torch_dtype": torch.float16,
+        "device": "cpu",
     }
     if Config.HF_TOKEN:
         _pipeline_kwargs["token"] = Config.HF_TOKEN
