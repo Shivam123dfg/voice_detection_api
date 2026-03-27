@@ -1,26 +1,22 @@
 import os
 from dotenv import load_dotenv
 
-# Load environment variables FIRST (before any HF imports)
+# Load environment variables FIRST
 load_dotenv()
-
-# Disable xet download protocol (causes 403 on some networks)
-os.environ["HF_HUB_DISABLE_XET"] = "1"
 
 from flask import Flask, request, jsonify, make_response
 import base64
-import tempfile
 import time
 import json
 import logging
+import requests as http_requests
 from functools import wraps
-from transformers import pipeline
 import librosa
 import numpy as np
 from pydub import AudioSegment
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-import torch
+import tempfile
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -36,7 +32,8 @@ class Config:
     HF_TOKEN = os.getenv('HF_TOKEN')
     SUPPORTED_LANGUAGES = ['Tamil', 'English', 'Hindi', 'Malayalam', 'Telugu']
     MAX_AUDIO_SIZE = 10 * 1024 * 1024  # 10MB
-    HF_MODEL_ID = "MelodyMachine/Deepfake-audio-detection-V2"
+    HF_MODEL_ID = "MIT/ast-finetuned-audioset-10-10-0.4593"
+    HF_API_URL = f"https://api-inference.huggingface.co/models/{HF_MODEL_ID}"
 
 # Validate environment variables at startup
 if not Config.API_SECRET_KEY:
@@ -96,23 +93,11 @@ def force_json_content_type(response):
     return response
 
 # ---------------------------------------------------------------------------
-# LOAD MODEL LOCALLY AT STARTUP
+# HF INFERENCE API  –  no local model needed
 # ---------------------------------------------------------------------------
-logger.info(f"Loading model locally: {Config.HF_MODEL_ID}...")
-try:
-    _pipeline_kwargs = {
-        "task": "audio-classification",
-        "model": Config.HF_MODEL_ID,
-        "dtype": torch.float16,
-        "device": "cpu",
-    }
-    if Config.HF_TOKEN:
-        _pipeline_kwargs["token"] = Config.HF_TOKEN
-    audio_classifier = pipeline(**_pipeline_kwargs)
-    logger.info(f"Model loaded successfully: {Config.HF_MODEL_ID}")
-except Exception as e:
-    logger.error(f"Failed to load model: {e}")
-    audio_classifier = None
+logger.info(f"Using HuggingFace Inference API: {Config.HF_API_URL}")
+if not Config.HF_TOKEN:
+    logger.warning("HF_TOKEN is not set — API calls may be rate-limited or rejected.")
 
 # ---------------------------------------------------------------------------
 # AUTHENTICATION DECORATOR
@@ -247,65 +232,100 @@ class AudioProcessor:
                         pass
 
 # ---------------------------------------------------------------------------
-# VOICE DETECTOR  (local transformers pipeline)
+# VOICE DETECTOR  (HuggingFace Inference API)
 # ---------------------------------------------------------------------------
+
+# Labels from MIT/ast model that suggest AI-generated / synthesized speech
+AI_LABELS = {"speech synthesizer", "synthetic singing", "synthesizer"}
+# Labels that suggest natural human speech
+HUMAN_LABELS = {"speech", "male speech, man speaking", "female speech, woman speaking",
+                "conversation", "narration, monologue", "child speech, kid speaking"}
+
 class VoiceDetector:
     def __init__(self):
-        self.classifier = audio_classifier
+        self.api_url = Config.HF_API_URL
+        self.headers = {"Content-Type": "audio/wav"}
+        if Config.HF_TOKEN:
+            self.headers["Authorization"] = f"Bearer {Config.HF_TOKEN}"
 
     def analyze_voice(self, audio_bytes, audio_format, language):
-        """Analyse voice using locally loaded model."""
+        """Analyse voice using HuggingFace Inference API."""
         try:
             return self._classify_audio(audio_bytes, audio_format)
         except Exception as e:
-            logger.error(f"Model inference failed: {type(e).__name__}: {e!r}")
+            logger.error(f"HF API inference failed: {type(e).__name__}: {e!r}")
             return self._fallback_analysis(audio_bytes, audio_format, language)
 
     def _classify_audio(self, audio_bytes, audio_format):
-        """Run audio classification using local transformers pipeline."""
-        if self.classifier is None:
-            raise RuntimeError("Model not loaded")
-
-        # Save audio bytes to a temp file for the pipeline
-        temp_path = None
-        try:
-            suffix = f'.{audio_format}'
-            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                tmp.write(audio_bytes)
-                temp_path = tmp.name
-
-            results = self.classifier(temp_path)
-
-            if results and len(results) > 0:
-                top = max(results, key=lambda x: x['score'])
-                label = top['label'].lower()
-                score = float(top['score'])
-
-                if label == 'fake':
-                    classification = 'AI_GENERATED'
-                elif label == 'real':
-                    classification = 'HUMAN'
-                else:
-                    logger.warning(f"Unexpected model label: '{top['label']}'")
-                    classification = 'HUMAN'
-
-                return {
-                    "classification": classification,
-                    "confidence_score": round(score, 2),
-                    "explanation": (
-                        f"Model classified as '{top['label']}' "
-                        f"with {score:.0%} confidence"
-                    ),
-                    "analysis_method": "local_model",
-                }
-
-            raise ValueError("No results from model")
-        finally:
-            if temp_path:
+        """Send audio to HuggingFace Inference API for classification."""
+        # Convert to WAV if needed (HF API works best with raw audio bytes)
+        if audio_format != 'wav':
+            temp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix=f'.{audio_format}', delete=False) as tmp:
+                    tmp.write(audio_bytes)
+                    temp_path = tmp.name
+                audio = AudioSegment.from_file(temp_path, format=audio_format)
+                wav_path = temp_path.replace(f'.{audio_format}', '.wav')
+                audio.export(wav_path, format="wav")
+                with open(wav_path, 'rb') as f:
+                    audio_bytes = f.read()
                 try:
-                    os.unlink(temp_path)
+                    os.unlink(wav_path)
                 except OSError:
                     pass
+            finally:
+                if temp_path:
+                    try:
+                        os.unlink(temp_path)
+                    except OSError:
+                        pass
+
+        response = http_requests.post(
+            self.api_url,
+            headers=self.headers,
+            data=audio_bytes,
+            timeout=60,
+        )
+
+        if response.status_code != 200:
+            raise RuntimeError(f"HF API returned {response.status_code}: {response.text}")
+
+        results = response.json()
+        logger.info(f"HF API response: {results}")
+
+        if not results or not isinstance(results, list) or len(results) == 0:
+            raise ValueError("No results from HF API")
+
+        # Analyze the top labels to determine AI vs Human
+        top = results[0]  # Already sorted by score from the API
+        label = top['label'].lower()
+        score = float(top['score'])
+
+        # Check if any AI-related label has significant score
+        ai_score = sum(r['score'] for r in results if r['label'].lower() in AI_LABELS)
+        human_score = sum(r['score'] for r in results if r['label'].lower() in HUMAN_LABELS)
+
+        if label in AI_LABELS or ai_score > 0.3:
+            classification = 'AI_GENERATED'
+            confidence = round(max(score, ai_score), 2)
+        elif label in HUMAN_LABELS or human_score > 0.3:
+            classification = 'HUMAN'
+            confidence = round(max(score, human_score), 2)
+        else:
+            # Default: treat unknown audio categories as inconclusive
+            classification = 'HUMAN'
+            confidence = round(score, 2)
+
+        return {
+            "classification": classification,
+            "confidence_score": confidence,
+            "explanation": (
+                f"Top prediction: '{top['label']}' ({score:.0%}). "
+                f"AI-related score: {ai_score:.0%}, Human-speech score: {human_score:.0%}"
+            ),
+            "analysis_method": "hf_inference_api",
+        }
 
     def _fallback_analysis(self, audio_bytes, audio_format, language):
         """Heuristic fallback when model inference fails."""
@@ -408,8 +428,8 @@ def voice_detection():
                 "message": f"Audio file too large. Maximum size: {Config.MAX_AUDIO_SIZE // (1024*1024)}MB",
             }), 400
 
-        # --- Voice analysis via local model ---
-        logger.info("STEP 5: Running local model inference...")
+        # --- Voice analysis via HF Inference API ---
+        logger.info("STEP 5: Calling HuggingFace Inference API...")
         _t0 = time.monotonic()
         analysis_result = voice_detector.analyze_voice(audio_bytes, audio_format, language)
         _elapsed = time.monotonic() - _t0
@@ -443,8 +463,8 @@ def health_check():
     return jsonify({
         "status": "healthy",
         "supported_languages": Config.SUPPORTED_LANGUAGES,
-        "model_loaded": audio_classifier is not None,
         "model": Config.HF_MODEL_ID,
+        "inference": "HuggingFace Inference API",
     }), 200
 
 # ---------------------------------------------------------------------------

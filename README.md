@@ -33,7 +33,7 @@ This folder contains a complete AI Voice Detection API solution that can detect 
 
 ### Prerequisites
 - Python 3.8 or higher
-- ~1GB disk space for the model download
+- HuggingFace account with API token
 
 ### 1. **Clone & Install Dependencies**
    ```bash
@@ -95,7 +95,7 @@ Follow the detailed instructions in `DEPLOYMENT_GUIDE.md` for:
 
 ✅ **Multi-language Support**: Tamil, English, Hindi, Malayalam, Telugu  
 ✅ **Flexible Input**: MP3 and WAV audio input via Base64 encoding  
-✅ **AI-Powered**: Runs [MelodyMachine/Deepfake-audio-detection-V2](https://huggingface.co/MelodyMachine/Deepfake-audio-detection-V2) locally via `transformers` pipeline (wav2vec2-based, outputs `fake`/`real` labels)  
+✅ **AI-Powered**: Uses [MIT/ast-finetuned-audioset-10-10-0.4593](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593) via HuggingFace Inference API (Audio Spectrogram Transformer for audio classification)  
 ✅ **RESTful API**: Clean JSON request/response format  
 ✅ **Secure Authentication**: API key-based authentication  
 ✅ **Error Handling**: Comprehensive error responses  
@@ -140,7 +140,7 @@ curl https://your-app-name.onrender.com/health
 |----------|----------|-------------|---------|
 
 | `API_SECRET_KEY` | Yes | Your custom API authentication key | `sk_voice_2024_...` |
-| `HF_TOKEN` | No | HuggingFace token (speeds up model download) | `hf_...` |
+| `HF_TOKEN` | Yes | HuggingFace token for Inference API | `hf_...` |
 | `FLASK_ENV` | No | Flask environment mode | `development` or `production` |
 | `FLASK_DEBUG` | No | Enable/disable debug mode | `True` or `False` |
 | `PORT` | No | Server port (auto-set by Render) | `5000` |

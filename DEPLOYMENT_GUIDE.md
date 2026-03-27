@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide will help you deploy the AI Voice Detection API that can detect whether an audio sample (MP3) is AI-generated or human across 5 languages: Tamil, English, Hindi, Malayalam, and Telugu.
+This guide will help you deploy the AI Voice Detection API that can detect whether an audio sample (MP3 or WAV) is AI-generated or human across 5 languages: Tamil, English, Hindi, Malayalam, and Telugu. It uses the HuggingFace Inference API with the MIT/ast-finetuned-audioset model.
 
 ## 📁 Files Created
 
@@ -44,7 +44,7 @@ This guide will help you deploy the AI Voice Detection API that can detect wheth
    - In your Space → **Settings** → **Variables and secrets**
    - Add as **Secrets**:
      - `API_SECRET_KEY`: Your custom API key (e.g., `sk_live_your_secret_key`)
-     - `HF_TOKEN`: Your HuggingFace token
+     - `HF_TOKEN`: Your HuggingFace token (required for Inference API)
 
 5. **Wait for build**
    - The Docker image will build and deploy automatically (5–10 minutes)
@@ -95,7 +95,7 @@ This guide will help you deploy the AI Voice Detection API that can detect wheth
    - In Render dashboard → your service → **Environment** tab
    - Add:
      - `API_SECRET_KEY`: Your custom API key (e.g., `sk_live_your_secret_key`)
-     - `HF_TOKEN`: *(Optional)* Your HuggingFace token — speeds up model download
+     - `HF_TOKEN`: Your HuggingFace token (required for Inference API)
 
 5. **Deploy**
    - Click **Create Web Service**
@@ -296,8 +296,8 @@ Error types: `validation_error`, `authentication_error`, `processing_error`, `ra
 {
     "status": "healthy",
     "supported_languages": ["Tamil", "English", "Hindi", "Malayalam", "Telugu"],
-    "model_loaded": true,
-    "model": "MelodyMachine/Deepfake-audio-detection-V2"
+    "model": "MIT/ast-finetuned-audioset-10-10-0.4593",
+    "inference": "HuggingFace Inference API"
 }
 ```
 
@@ -354,7 +354,7 @@ print(response.json())
 |----------|-------------|---------|
 
 | `API_SECRET_KEY` | Your API authentication key | Required |
-| `HF_TOKEN` | HuggingFace token (speeds up model download) | Optional |
+| `HF_TOKEN` | HuggingFace token for Inference API | Required |
 | `PORT` | Port number | 5000 |
 | `FLASK_ENV` | Flask environment | production |
 

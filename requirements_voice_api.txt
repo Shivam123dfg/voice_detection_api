@@ -6,6 +6,5 @@ numpy>=1.26.0
 gunicorn>=21.2.0
 python-dotenv>=1.0.0
 soundfile>=0.12.1
-transformers>=4.36.0
-torch>=2.1.0
+requests>=2.31.0
 setuptools>=65.0.0
