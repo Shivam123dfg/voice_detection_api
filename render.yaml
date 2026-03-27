@@ -8,8 +8,8 @@ services:
     envVars:
       - key: API_SECRET_KEY
         sync: false  # Set manually in Render dashboard
-      - key: API_SECRET_KEY
-        sync: false  # Set manually in Render dashboard
+      - key: HF_TOKEN
+        sync: false  # Optional: speeds up model download
     scaling:
       minInstances: 1
       maxInstances: 1

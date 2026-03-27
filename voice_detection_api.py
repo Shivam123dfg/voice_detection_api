@@ -1,8 +1,16 @@
+import os
+from dotenv import load_dotenv
+
+# Load environment variables FIRST (before any HF imports)
+load_dotenv()
+
+# Disable xet download protocol (causes 403 on some networks)
+os.environ["HF_HUB_DISABLE_XET"] = "1"
+
 from flask import Flask, request, jsonify, make_response
 import base64
-import io
-import os
 import tempfile
+import time
 import json
 import logging
 from functools import wraps
@@ -12,10 +20,6 @@ import numpy as np
 from pydub import AudioSegment
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from dotenv import load_dotenv
-
-# Load environment variables from .env file (for local development)
-load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -28,6 +32,7 @@ app = Flask(__name__)
 # ---------------------------------------------------------------------------
 class Config:
     API_SECRET_KEY = os.getenv('API_SECRET_KEY')
+    HF_TOKEN = os.getenv('HF_TOKEN')
     SUPPORTED_LANGUAGES = ['Tamil', 'English', 'Hindi', 'Malayalam', 'Telugu']
     MAX_AUDIO_SIZE = 10 * 1024 * 1024  # 10MB
     HF_MODEL_ID = "MelodyMachine/Deepfake-audio-detection-V2"
@@ -94,10 +99,13 @@ def force_json_content_type(response):
 # ---------------------------------------------------------------------------
 logger.info(f"Loading model locally: {Config.HF_MODEL_ID}...")
 try:
-    audio_classifier = pipeline(
-        "audio-classification",
-        model=Config.HF_MODEL_ID,
-    )
+    _pipeline_kwargs = {
+        "task": "audio-classification",
+        "model": Config.HF_MODEL_ID,
+    }
+    if Config.HF_TOKEN:
+        _pipeline_kwargs["token"] = Config.HF_TOKEN
+    audio_classifier = pipeline(**_pipeline_kwargs)
     logger.info(f"Model loaded successfully: {Config.HF_MODEL_ID}")
 except Exception as e:
     logger.error(f"Failed to load model: {e}")
@@ -183,84 +191,6 @@ class AudioProcessor:
             raise ValueError("Invalid base64 audio data")
 
     @staticmethod
-    def compress_audio_if_needed(audio_bytes, audio_format='mp3', target_base64_kb=10):
-        """Compress audio so its base64 encoding stays within target_base64_kb."""
-        base64_size_kb = len(base64.b64encode(audio_bytes)) / 1024
-
-        if base64_size_kb <= target_base64_kb:
-            logger.info(f"Audio base64 size is {base64_size_kb:.1f} KB — within {target_base64_kb} KB limit, no compression needed")
-            return audio_bytes, audio_format
-
-        logger.info(f"Audio base64 size is {base64_size_kb:.1f} KB — exceeds {target_base64_kb} KB limit. Compressing...")
-
-        temp_path = None
-        try:
-            suffix = f'.{audio_format}'
-            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                tmp.write(audio_bytes)
-                temp_path = tmp.name
-
-            # Auto-detect format: try declared format first, then fallback
-            try:
-                if audio_format == 'wav':
-                    audio = AudioSegment.from_wav(temp_path)
-                else:
-                    audio = AudioSegment.from_mp3(temp_path)
-            except Exception:
-                logger.warning(
-                    f"Could not load as '{audio_format}', "
-                    f"trying auto-detect..."
-                )
-                audio = AudioSegment.from_file(temp_path)
-
-            # Convert to mono to reduce size
-            audio = audio.set_channels(1)
-
-            # Try progressively lower sample rates and bitrates
-            sample_rates = [16000, 12000, 8000]
-            bitrates = ['32k', '24k', '16k']
-
-            for sr in sample_rates:
-                resampled = audio.set_frame_rate(sr)
-                for br in bitrates:
-                    buf = io.BytesIO()
-                    resampled.export(buf, format='mp3', bitrate=br)
-                    compressed = buf.getvalue()
-                    compressed_b64_kb = len(base64.b64encode(compressed)) / 1024
-                    if compressed_b64_kb <= target_base64_kb:
-                        logger.info(
-                            f"Compressed to {compressed_b64_kb:.1f} KB base64 "
-                            f"(sample_rate={sr}, bitrate={br})"
-                        )
-                        return compressed, 'mp3'
-
-            # Still too large — trim duration proportionally
-            last_compressed = compressed          # smallest quality attempt
-            last_b64_kb = len(base64.b64encode(last_compressed)) / 1024
-            trim_ratio = target_base64_kb / last_b64_kb
-            trim_ms = int(len(audio) * min(trim_ratio, 1.0))
-            trimmed = audio.set_frame_rate(8000)[:trim_ms]
-
-            buf = io.BytesIO()
-            trimmed.export(buf, format='mp3', bitrate='16k')
-            compressed = buf.getvalue()
-            logger.info(
-                f"Trimmed to {trim_ms} ms and compressed to "
-                f"{len(base64.b64encode(compressed)) / 1024:.1f} KB base64"
-            )
-            return compressed, 'mp3'
-
-        except Exception as e:
-            logger.warning(f"Compression failed ({e}), proceeding with original audio")
-            return audio_bytes, audio_format
-        finally:
-            if temp_path:
-                try:
-                    os.unlink(temp_path)
-                except OSError:
-                    pass
-
-    @staticmethod
     def _get_tempo(y, sr):
         """Get tempo, compatible with both old and new librosa versions."""
         try:
@@ -314,7 +244,7 @@ class AudioProcessor:
                         pass
 
 # ---------------------------------------------------------------------------
-# VOICE DETECTOR  (with HuggingFace Inference API + retry / exponential back-off)
+# VOICE DETECTOR  (local transformers pipeline)
 # ---------------------------------------------------------------------------
 class VoiceDetector:
     def __init__(self):
@@ -375,7 +305,7 @@ class VoiceDetector:
                     pass
 
     def _fallback_analysis(self, audio_bytes, audio_format, language):
-        """Heuristic fallback when HuggingFace API is unavailable."""
+        """Heuristic fallback when model inference fails."""
         try:
             audio_features = AudioProcessor.extract_audio_features(
                 audio_bytes, audio_format
@@ -475,24 +405,12 @@ def voice_detection():
                 "message": f"Audio file too large. Maximum size: {Config.MAX_AUDIO_SIZE // (1024*1024)}MB",
             }), 400
 
-        # --- Compress audio if base64 > 10 KB ---
-        try:
-            logger.info("STEP 4.5: Checking if audio needs compression...")
-            audio_bytes, audio_format = AudioProcessor.compress_audio_if_needed(
-                audio_bytes, audio_format, target_base64_kb=10
-            )
-        except ValueError as e:
-            logger.error(f"STEP 4.5 FAILED: Compression error: {e}")
-            return jsonify({
-                "status": "error",
-                "error_type": "processing_error",
-                "message": str(e),
-            }), 422
-
-        # --- Voice analysis via HuggingFace ---
-        logger.info("STEP 5: Sending audio to HuggingFace model for analysis...")
+        # --- Voice analysis via local model ---
+        logger.info("STEP 5: Running local model inference...")
+        _t0 = time.monotonic()
         analysis_result = voice_detector.analyze_voice(audio_bytes, audio_format, language)
-        logger.info(f"STEP 5: Analysis complete - method={analysis_result.get('analysis_method')}, "
+        _elapsed = time.monotonic() - _t0
+        logger.info(f"STEP 5: Analysis complete in {_elapsed:.1f}s - method={analysis_result.get('analysis_method')}, "
                     f"classification={analysis_result['classification']}, "
                     f"confidence={analysis_result['confidence_score']:.2f}")
         logger.info(f"STEP 5: Explanation: {analysis_result.get('explanation', 'N/A')}")

@@ -1,4 +1,4 @@
-ï»¿# Environment files (never commit real secrets)
+ÿþï»¿# Environment files (never commit real secrets)
 .env
 
 # Python
@@ -20,3 +20,6 @@ Thumbs.db
 # Test artifacts
 test_audio.mp3
 test_payload_live.json
+
+# Local model cache (don't commit 378MB model)
+local_model

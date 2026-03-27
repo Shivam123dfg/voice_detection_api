@@ -46,6 +46,7 @@ This guide will help you deploy the AI Voice Detection API that can detect wheth
    - In Render dashboard → your service → **Environment** tab
    - Add:
      - `API_SECRET_KEY`: Your custom API key (e.g., `sk_live_your_secret_key`)
+     - `HF_TOKEN`: *(Optional)* Your HuggingFace token — speeds up model download
 
 5. **Deploy**
    - Click **Create Web Service**
@@ -65,6 +66,7 @@ This guide will help you deploy the AI Voice Detection API that can detect wheth
    
    # Set environment variables
    heroku config:set API_SECRET_KEY=sk_live_your_secret_key
+   heroku config:set HF_TOKEN=hf_your_token_here
 
    git push heroku main
    ```
@@ -303,6 +305,7 @@ print(response.json())
 |----------|-------------|---------|
 
 | `API_SECRET_KEY` | Your API authentication key | Required |
+| `HF_TOKEN` | HuggingFace token (speeds up model download) | Optional |
 | `PORT` | Port number | 5000 |
 | `FLASK_ENV` | Flask environment | production |
 
@@ -312,7 +315,7 @@ Tamil, English, Hindi, Malayalam, Telugu
 
 ### Audio Constraints
 
-- Format: MP3 only
+- Format: MP3, WAV
 - Encoding: Base64
 - Max size: 10 MB
 

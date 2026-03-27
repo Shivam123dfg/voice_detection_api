@@ -14,7 +14,13 @@ COPY requirements_voice_api.txt .
 RUN pip install --no-cache-dir -r requirements_voice_api.txt
 
 # Pre-download the model at build time so it's cached in the image
-RUN python -c "from transformers import pipeline; pipeline('audio-classification', model='MelodyMachine/Deepfake-audio-detection-V2')"
+ARG HF_TOKEN
+ENV HF_HUB_DISABLE_XET=1
+RUN if [ -n "$HF_TOKEN" ]; then \
+      HF_TOKEN=$HF_TOKEN python -c "from huggingface_hub import login; login(token='$HF_TOKEN'); from transformers import pipeline; pipeline('audio-classification', model='MelodyMachine/Deepfake-audio-detection-V2')"; \
+    else \
+      python -c "from transformers import pipeline; pipeline('audio-classification', model='MelodyMachine/Deepfake-audio-detection-V2')"; \
+    fi
 
 # Copy application code
 COPY . .

@@ -80,11 +80,12 @@ Follow the detailed instructions in `DEPLOYMENT_GUIDE.md` for:
 2. Connect your GitHub repo to Render
 3. Set environment variables in Render dashboard:
    - `API_SECRET_KEY` = your custom secret key
+   - `HF_TOKEN` = your HuggingFace token (optional, speeds up model download)
 
 ## 🎯 Features
 
 ✅ **Multi-language Support**: Tamil, English, Hindi, Malayalam, Telugu  
-✅ **Flexible Input**: MP3 audio input via Base64 encoding  
+✅ **Flexible Input**: MP3 and WAV audio input via Base64 encoding  
 ✅ **AI-Powered**: Runs [MelodyMachine/Deepfake-audio-detection-V2](https://huggingface.co/MelodyMachine/Deepfake-audio-detection-V2) locally via `transformers` pipeline (wav2vec2-based, outputs `fake`/`real` labels)  
 ✅ **RESTful API**: Clean JSON request/response format  
 ✅ **Secure Authentication**: API key-based authentication  
@@ -130,6 +131,7 @@ curl https://your-app-name.onrender.com/health
 |----------|----------|-------------|---------|
 
 | `API_SECRET_KEY` | Yes | Your custom API authentication key | `sk_voice_2024_...` |
+| `HF_TOKEN` | No | HuggingFace token (speeds up model download) | `hf_...` |
 | `FLASK_ENV` | No | Flask environment mode | `development` or `production` |
 | `FLASK_DEBUG` | No | Enable/disable debug mode | `True` or `False` |
 | `PORT` | No | Server port (auto-set by Render) | `5000` |
