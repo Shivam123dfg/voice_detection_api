@@ -17,58 +17,9 @@ This guide will help you deploy the AI Voice Detection API that can detect wheth
 
 ## 🚀 Step-by-Step Deployment
 
-### Option 1: Deploy to HuggingFace Spaces (FREE - Recommended)
+### Option 1: Deploy to Render.com (FREE - Recommended)
 
-> **Best for ML models.** HF Spaces gives you **2GB RAM** for free with Docker support — enough to run the wav2vec2 model locally.
-
-1. **Create a HuggingFace account**
-   - Go to [huggingface.co](https://huggingface.co) and sign up
-
-2. **Create a new Space**
-   - Go to [huggingface.co/new-space](https://huggingface.co/new-space)
-   - **Space name:** `voice-detection-api`
-   - **SDK:** Select **Docker**
-   - **Visibility:** Public (free) or Private
-   - Click **Create Space**
-
-3. **Push your code to the Space**
-   ```bash
-   # Add HF Space as a remote
-   git remote add hfspace https://huggingface.co/spaces/YOUR_USERNAME/voice-detection-api
-
-   # Push to HF Spaces
-   git push hfspace main
-   ```
-
-4. **Set Secrets (Environment Variables)**
-   - In your Space → **Settings** → **Variables and secrets**
-   - Add as **Secrets**:
-     - `API_SECRET_KEY`: Your custom API key (e.g., `sk_live_your_secret_key`)
-     - `HF_TOKEN`: Your HuggingFace token (required for Inference API)
-
-5. **Wait for build**
-   - The Docker image will build and deploy automatically (5–10 minutes)
-   - Your API will be available at: `https://YOUR_USERNAME-voice-detection-api.hf.space`
-
-6. **Test your deployment**
-   ```bash
-   # Health check
-   curl https://YOUR_USERNAME-voice-detection-api.hf.space/health
-
-   # Voice detection
-   curl -X POST https://YOUR_USERNAME-voice-detection-api.hf.space/api/voice-detection \
-     -H "Content-Type: application/json" \
-     -H "x-api-key: sk_live_your_secret_key" \
-     -d @test_payload.json
-   ```
-
-> **Note:** HF Spaces free tier sleeps after 48h of inactivity. The first request after sleep takes ~2 minutes to wake up.
-
-### Option 2: Deploy to Render.com (FREE)
-
-> **Important:** Render free tier has 512MB RAM which may not be enough. Use the **Starter plan ($7/mo, 1GB RAM)** for reliable operation.
-
-> This project uses a **Docker** runtime. Render auto-detects the `Dockerfile` in the repo root.
+> This project uses a lightweight **Docker** runtime with the HuggingFace Inference API — no heavy model download needed. Render free tier (512MB RAM) is sufficient.
 
 1. **Push your code to GitHub**
    ```bash
@@ -99,8 +50,22 @@ This guide will help you deploy the AI Voice Detection API that can detect wheth
 
 5. **Deploy**
    - Click **Create Web Service**
-   - Wait for the Docker image to build and deploy (5–10 minutes)
+   - Wait for the Docker image to build and deploy (2–5 minutes)
    - Your API will be available at: `https://your-app-name.onrender.com`
+
+6. **Test your deployment**
+   ```bash
+   # Health check
+   curl https://your-app-name.onrender.com/health
+
+   # Voice detection
+   curl -X POST https://your-app-name.onrender.com/api/voice-detection \
+     -H "Content-Type: application/json" \
+     -H "x-api-key: sk_live_your_secret_key" \
+     -d @test_payload.json
+   ```
+
+> **Note:** Render free tier spins down after 15 minutes of inactivity. The first request after sleep takes ~30 seconds.
 
 > **Troubleshooting Render:** If your existing service was created with Python runtime and you can't switch to Docker in the UI, **delete the service and recreate it**. Render will detect the Dockerfile on fresh creation.
 

@@ -9,7 +9,7 @@ services:
       - key: API_SECRET_KEY
         sync: false  # Set manually in Render dashboard
       - key: HF_TOKEN
-        sync: false  # Optional: speeds up model download
+        sync: false  # Required: HuggingFace token for Inference API
     scaling:
       minInstances: 1
       maxInstances: 1

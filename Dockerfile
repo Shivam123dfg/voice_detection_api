@@ -16,9 +16,8 @@ RUN pip install --no-cache-dir -r requirements_voice_api.txt
 # Copy application code
 COPY . .
 
-# Default port (HuggingFace Spaces uses 7860)
-ENV PORT=7860
-EXPOSE 7860
+# Render sets PORT env var automatically (default 10000)
+EXPOSE 10000
 
 # Start the application
-CMD gunicorn --bind 0.0.0.0:${PORT} --workers 1 --timeout 300 --log-level info voice_detection_api:app
+CMD gunicorn --bind 0.0.0.0:${PORT:-10000} --workers 1 --timeout 300 --log-level info voice_detection_api:app

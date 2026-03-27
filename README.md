@@ -1,12 +1,3 @@
----
-title: Voice Detection API
-emoji: 🎙️
-colorFrom: blue
-colorTo: purple
-sdk: docker
-app_port: 7860
----
-
 # AI Voice Detection API
 
 This folder contains a complete AI Voice Detection API solution that can detect whether an audio sample (MP3) is AI-generated or human across 5 languages.
@@ -89,7 +80,7 @@ Follow the detailed instructions in `DEPLOYMENT_GUIDE.md` for:
 2. Connect your GitHub repo to Render
 3. Set environment variables in Render dashboard:
    - `API_SECRET_KEY` = your custom secret key
-   - `HF_TOKEN` = your HuggingFace token (optional, speeds up model download)
+   - `HF_TOKEN` = your HuggingFace token (required for Inference API)
 
 ## 🎯 Features
 
