@@ -281,15 +281,40 @@ class VoiceDetector:
                     except OSError:
                         pass
 
-        response = http_requests.post(
-            self.api_url,
-            headers=self.headers,
-            data=audio_bytes,
-            timeout=60,
-        )
+        # Retry loop for transient errors (connection drops, model cold-start)
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = http_requests.post(
+                    self.api_url,
+                    headers=self.headers,
+                    data=audio_bytes,
+                    timeout=120,
+                )
 
-        if response.status_code != 200:
-            raise RuntimeError(f"HF API returned {response.status_code}: {response.text}")
+                # HF API returns 503 when the model is loading — wait and retry
+                if response.status_code == 503:
+                    body = response.json() if response.headers.get('content-type', '').startswith('application/json') else {}
+                    wait_time = min(body.get("estimated_time", 30), 60)
+                    logger.info(f"Model is loading on HF. Waiting {wait_time:.0f}s (attempt {attempt}/{max_retries})...")
+                    time.sleep(wait_time)
+                    continue
+
+                if response.status_code != 200:
+                    raise RuntimeError(f"HF API returned {response.status_code}: {response.text}")
+
+                break  # success
+
+            except (http_requests.exceptions.ConnectionError,
+                    http_requests.exceptions.ChunkedEncodingError,
+                    http_requests.exceptions.Timeout) as e:
+                logger.warning(f"HF API connection error (attempt {attempt}/{max_retries}): {type(e).__name__}")
+                if attempt < max_retries:
+                    time.sleep(5 * attempt)
+                    continue
+                raise RuntimeError(f"HF API failed after {max_retries} attempts: {e}") from e
+        else:
+            raise RuntimeError(f"HF API failed after {max_retries} attempts (model still loading)")
 
         results = response.json()
         logger.info(f"HF API response: {results}")
