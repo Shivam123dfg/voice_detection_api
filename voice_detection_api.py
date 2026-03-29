@@ -9,10 +9,8 @@ import base64
 import time
 import json
 import logging
-import requests as http_requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 from functools import wraps
+from huggingface_hub import InferenceClient
 import librosa
 import numpy as np
 from pydub import AudioSegment
@@ -35,7 +33,6 @@ class Config:
     SUPPORTED_LANGUAGES = ['Tamil', 'English', 'Hindi', 'Malayalam', 'Telugu']
     MAX_AUDIO_SIZE = 10 * 1024 * 1024  # 10MB
     HF_MODEL_ID = "MIT/ast-finetuned-audioset-10-10-0.4593"
-    HF_API_URL = f"https://api-inference.huggingface.co/models/{HF_MODEL_ID}"
 
 # Validate environment variables at startup
 if not Config.API_SECRET_KEY:
@@ -97,7 +94,7 @@ def force_json_content_type(response):
 # ---------------------------------------------------------------------------
 # HF INFERENCE API  –  no local model needed
 # ---------------------------------------------------------------------------
-logger.info(f"Using HuggingFace Inference API: {Config.HF_API_URL}")
+logger.info(f"Using HuggingFace Inference API for model: {Config.HF_MODEL_ID}")
 if not Config.HF_TOKEN:
     logger.warning("HF_TOKEN is not set — API calls may be rate-limited or rejected.")
 
@@ -245,22 +242,11 @@ HUMAN_LABELS = {"speech", "male speech, man speaking", "female speech, woman spe
 
 class VoiceDetector:
     def __init__(self):
-        self.api_url = Config.HF_API_URL
-        self.headers = {"Content-Type": "audio/wav"}
-        if Config.HF_TOKEN:
-            self.headers["Authorization"] = f"Bearer {Config.HF_TOKEN}"
-        # Robust HTTP session with urllib3-level retries for IncompleteRead / chunked errors
-        self.session = http_requests.Session()
-        retry_strategy = Retry(
-            total=3,
-            backoff_factor=2,
-            status_forcelist=[502, 503, 504],
-            allowed_methods=["POST"],
-            raise_on_status=False,
+        self.client = InferenceClient(
+            model=Config.HF_MODEL_ID,
+            token=Config.HF_TOKEN,
+            timeout=180,
         )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
-        self.session.mount("https://", adapter)
-        self.session.mount("http://", adapter)
 
     def analyze_voice(self, audio_bytes, audio_format, language):
         """Analyse voice using HuggingFace Inference API."""
@@ -295,56 +281,40 @@ class VoiceDetector:
                     except OSError:
                         pass
 
-        # Retry loop for transient errors (connection drops, model cold-start)
+        # Use official HuggingFace InferenceClient (handles chunked encoding,
+        # retries, model cold-starts, and IncompleteRead errors internally)
         max_retries = 3
+        last_error = None
         for attempt in range(1, max_retries + 1):
             try:
-                response = self.session.post(
-                    self.api_url,
-                    headers=self.headers,
-                    data=audio_bytes,
-                    timeout=(30, 180),   # (connect_timeout, read_timeout)
-                    stream=False,        # read full response body at once
-                )
-
-                # HF API returns 503 when the model is loading — wait and retry
-                if response.status_code == 503:
-                    body = response.json() if response.headers.get('content-type', '').startswith('application/json') else {}
-                    wait_time = min(body.get("estimated_time", 30), 60)
-                    logger.info(f"Model is loading on HF. Waiting {wait_time:.0f}s (attempt {attempt}/{max_retries})...")
-                    time.sleep(wait_time)
-                    continue
-
-                if response.status_code != 200:
-                    raise RuntimeError(f"HF API returned {response.status_code}: {response.text}")
-
+                results = self.client.audio_classification(audio_bytes)
                 break  # success
-
-            except (http_requests.exceptions.ConnectionError,
-                    http_requests.exceptions.ChunkedEncodingError,
-                    http_requests.exceptions.Timeout) as e:
-                logger.warning(f"HF API connection error (attempt {attempt}/{max_retries}): {type(e).__name__}")
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    f"HF InferenceClient error (attempt {attempt}/{max_retries}): "
+                    f"{type(e).__name__}: {e}"
+                )
                 if attempt < max_retries:
-                    time.sleep(10 * attempt)  # longer backoff: 10s, 20s
+                    time.sleep(10 * attempt)
                     continue
-                raise RuntimeError(f"HF API failed after {max_retries} attempts: {e}") from e
-        else:
-            raise RuntimeError(f"HF API failed after {max_retries} attempts (model still loading)")
+                raise RuntimeError(
+                    f"HF API failed after {max_retries} attempts: {last_error}"
+                ) from last_error
 
-        results = response.json()
         logger.info(f"HF API response: {results}")
 
-        if not results or not isinstance(results, list) or len(results) == 0:
+        if not results or len(results) == 0:
             raise ValueError("No results from HF API")
 
-        # Analyze the top labels to determine AI vs Human
-        top = results[0]  # Already sorted by score from the API
-        label = top['label'].lower()
-        score = float(top['score'])
+        # results is a list of ClassificationOutput objects with .label and .score
+        top = results[0]
+        label = top.label.lower()
+        score = float(top.score)
 
         # Check if any AI-related label has significant score
-        ai_score = sum(r['score'] for r in results if r['label'].lower() in AI_LABELS)
-        human_score = sum(r['score'] for r in results if r['label'].lower() in HUMAN_LABELS)
+        ai_score = sum(r.score for r in results if r.label.lower() in AI_LABELS)
+        human_score = sum(r.score for r in results if r.label.lower() in HUMAN_LABELS)
 
         if label in AI_LABELS or ai_score > 0.3:
             classification = 'AI_GENERATED'
@@ -361,7 +331,7 @@ class VoiceDetector:
             "classification": classification,
             "confidence_score": confidence,
             "explanation": (
-                f"Top prediction: '{top['label']}' ({score:.0%}). "
+                f"Top prediction: '{top.label}' ({score:.0%}). "
                 f"AI-related score: {ai_score:.0%}, Human-speech score: {human_score:.0%}"
             ),
             "analysis_method": "hf_inference_api",
