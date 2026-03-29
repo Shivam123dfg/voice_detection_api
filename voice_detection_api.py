@@ -10,6 +10,8 @@ import time
 import json
 import logging
 import requests as http_requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from functools import wraps
 import librosa
 import numpy as np
@@ -247,6 +249,18 @@ class VoiceDetector:
         self.headers = {"Content-Type": "audio/wav"}
         if Config.HF_TOKEN:
             self.headers["Authorization"] = f"Bearer {Config.HF_TOKEN}"
+        # Robust HTTP session with urllib3-level retries for IncompleteRead / chunked errors
+        self.session = http_requests.Session()
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=2,
+            status_forcelist=[502, 503, 504],
+            allowed_methods=["POST"],
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
 
     def analyze_voice(self, audio_bytes, audio_format, language):
         """Analyse voice using HuggingFace Inference API."""
@@ -285,11 +299,12 @@ class VoiceDetector:
         max_retries = 3
         for attempt in range(1, max_retries + 1):
             try:
-                response = http_requests.post(
+                response = self.session.post(
                     self.api_url,
                     headers=self.headers,
                     data=audio_bytes,
-                    timeout=120,
+                    timeout=(30, 180),   # (connect_timeout, read_timeout)
+                    stream=False,        # read full response body at once
                 )
 
                 # HF API returns 503 when the model is loading — wait and retry
@@ -310,7 +325,7 @@ class VoiceDetector:
                     http_requests.exceptions.Timeout) as e:
                 logger.warning(f"HF API connection error (attempt {attempt}/{max_retries}): {type(e).__name__}")
                 if attempt < max_retries:
-                    time.sleep(5 * attempt)
+                    time.sleep(10 * attempt)  # longer backoff: 10s, 20s
                     continue
                 raise RuntimeError(f"HF API failed after {max_retries} attempts: {e}") from e
         else:
