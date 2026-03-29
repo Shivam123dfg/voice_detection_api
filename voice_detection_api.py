@@ -281,13 +281,15 @@ class VoiceDetector:
                     except OSError:
                         pass
 
-        # Use official HuggingFace InferenceClient (handles chunked encoding,
-        # retries, model cold-starts, and IncompleteRead errors internally)
+        # Use InferenceClient.post() for robust connection handling while
+        # parsing the JSON response ourselves (audio_classification() has
+        # a parsing bug with this model's output format).
         max_retries = 3
         last_error = None
         for attempt in range(1, max_retries + 1):
             try:
-                results = self.client.audio_classification(audio_bytes)
+                raw = self.client.post(data=audio_bytes)
+                results = json.loads(raw)
                 break  # success
             except Exception as e:
                 last_error = e
@@ -304,17 +306,17 @@ class VoiceDetector:
 
         logger.info(f"HF API response: {results}")
 
-        if not results or len(results) == 0:
+        if not results or not isinstance(results, list) or len(results) == 0:
             raise ValueError("No results from HF API")
 
-        # results is a list of ClassificationOutput objects with .label and .score
+        # Analyze the top labels to determine AI vs Human
         top = results[0]
-        label = top.label.lower()
-        score = float(top.score)
+        label = top['label'].lower()
+        score = float(top['score'])
 
         # Check if any AI-related label has significant score
-        ai_score = sum(r.score for r in results if r.label.lower() in AI_LABELS)
-        human_score = sum(r.score for r in results if r.label.lower() in HUMAN_LABELS)
+        ai_score = sum(r['score'] for r in results if r['label'].lower() in AI_LABELS)
+        human_score = sum(r['score'] for r in results if r['label'].lower() in HUMAN_LABELS)
 
         if label in AI_LABELS or ai_score > 0.3:
             classification = 'AI_GENERATED'
@@ -331,7 +333,7 @@ class VoiceDetector:
             "classification": classification,
             "confidence_score": confidence,
             "explanation": (
-                f"Top prediction: '{top.label}' ({score:.0%}). "
+                f"Top prediction: '{top['label']}' ({score:.0%}). "
                 f"AI-related score: {ai_score:.0%}, Human-speech score: {human_score:.0%}"
             ),
             "analysis_method": "hf_inference_api",
