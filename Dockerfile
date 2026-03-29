@@ -10,14 +10,22 @@ RUN apt-get update && \
 WORKDIR /app
 
 # Copy requirements and install Python dependencies
+# Install CPU-only PyTorch first (much smaller than full CUDA build)
 COPY requirements_voice_api.txt .
-RUN pip install --no-cache-dir -r requirements_voice_api.txt
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements_voice_api.txt
 
 # Copy application code
 COPY . .
 
-# Render sets PORT env var automatically (default 10000)
-EXPOSE 10000
+# HF Spaces uses port 7860
+EXPOSE 7860
+
+# Pre-download the model at build time so startup is fast.
+RUN python -c "\
+from transformers import pipeline; \
+pipeline('audio-classification', model='MelodyMachine/Deepfake-audio-detection-V2'); \
+print('Model cached OK')"
 
 # Start the application
-CMD gunicorn --bind 0.0.0.0:${PORT:-10000} --workers 1 --timeout 300 --log-level info voice_detection_api:app
+CMD gunicorn --bind 0.0.0.0:${PORT:-7860} --workers 1 --timeout 300 --log-level info voice_detection_api:app

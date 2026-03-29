@@ -1,0 +1,10 @@
+.git
+.venv
+.env
+test cases
+test_payload.json
+run_tests.py
+__pycache__
+*.pyc
+.dockerignore
+.gitignore
